@@ -566,11 +566,6 @@ class VLMImageTest:
 
 
 # =============================================================================
-# Registration
-# =============================================================================
-
-
-# =============================================================================
 # VLMtoBBoxAndPoints — single API call: bbox + points in one shot
 # =============================================================================
 
@@ -624,7 +619,7 @@ class VLMtoBBoxAndPoints:
             f"3. Place {num_neg_points} negative point(s) on anything that is NOT {target_description} — "
             "near its boundary, visually similar regions.\n\n"
             "Return ONLY this JSON (no explanation, no markdown):\n"
-            '{"bbox": [x1, y1, x2, y2], "positive": [[x, y], ...], "negative": [[x, y], ...]}' 
+            '{"bbox": [x1, y1, x2, y2], "positive": [[x, y], ...], "negative": [[x, y], ...]}'
             + few_shot_block
         )
 
@@ -645,7 +640,7 @@ class VLMtoBBoxAndPoints:
         pos_raw = pos_raw[:num_pos_points]
         neg_raw = neg_raw[:num_neg_points]
 
-        # bbox → normalized center format
+        # bbox -> normalized center format
         x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
         cx = (x1n + x2n) / 2;  cy = (y1n + y2n) / 2
         bw = x2n - x1n;        bh = y2n - y1n
@@ -653,7 +648,7 @@ class VLMtoBBoxAndPoints:
         box_prompt   = {"box":   [cx, cy, bw, bh], "label": is_positive}
         boxes_prompt = {"boxes": [[cx, cy, bw, bh]], "labels": [is_positive]}
 
-        # points → normalized
+        # points -> normalized
         def to_norm(pts, label_val):
             result, lbls = [], []
             for pt in pts:
@@ -670,28 +665,6 @@ class VLMtoBBoxAndPoints:
         print(f"[VLMtoBBoxAndPoints] neg ({len(negative_points['points'])}): {negative_points['points']}")
 
         return (box_prompt, boxes_prompt, positive_points, negative_points, raw)
-
-NODE_CLASS_MAPPINGS = {
-    "SAMheraAPIKey":   SAMheraAPIKey,
-    "VLMtoBBoxAndPoints": VLMtoBBoxAndPoints,
-    "VLMtoBBox":       VLMtoBBox,
-    "VLMtoPoints":     VLMtoPoints,
-    "VLMtoMultiBBox":  VLMtoMultiBBox,
-    "VLMBBoxPreview":  VLMBBoxPreview,
-    "VLMDebugPreview": VLMDebugPreview,
-    "VLMImageTest":    VLMImageTest,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "SAMheraAPIKey":   "SAMhera API Key",
-    "VLMtoBBoxAndPoints": "VLM -> BBox + Points (SAMhera)",
-    "VLMtoBBox":       "VLM -> BBox (SAMhera)",
-    "VLMtoPoints":     "VLM -> Points (SAMhera)",
-    "VLMtoMultiBBox":  "VLM -> Multi-BBox (SAMhera)",
-    "VLMBBoxPreview":  "VLM BBox Preview (SAMhera)",
-    "VLMDebugPreview": "VLM Debug Preview (SAMhera)",
-    "VLMImageTest":    "VLM Image Test (SAMhera)",
-}
 
 
 # =============================================================================
@@ -737,25 +710,20 @@ class SAMheraReload:
         if reloaded:
             try:
                 mod = sys.modules[reloaded[0]]
-                # Update global ComfyUI node registry
                 import nodes as comfy_nodes
                 comfy_nodes.NODE_CLASS_MAPPINGS.update(mod.NODE_CLASS_MAPPINGS)
                 comfy_nodes.NODE_DISPLAY_NAME_MAPPINGS.update(mod.NODE_DISPLAY_NAME_MAPPINGS)
-                status = f"✓ Reloaded. Re-add nodes to use updated code."
+                status = f"Reloaded. Re-add nodes to use updated code."
             except Exception as e:
-                status = f"✓ Module reloaded but registry update failed: {e}"
+                status = f"Module reloaded but registry update failed: {e}"
         else:
             status = "Module not in sys.modules — full restart required (first time only)."
 
         if failed:
-            status += f"\n✗ Failed: {', '.join(failed)}"
+            status += f"\nFailed: {', '.join(failed)}"
 
         print(f"[SAMhera] Reload: {status}")
         return (status,)
-
-
-NODE_CLASS_MAPPINGS["SAMheraReload"] = SAMheraReload
-NODE_DISPLAY_NAME_MAPPINGS["SAMheraReload"] = "SAMhera Reload"
 
 
 # =============================================================================
@@ -810,13 +778,13 @@ class SAMheraAddFramePrompt:
             },
             "optional": {
                 "positive_points": ("SAM3_POINTS_PROMPT", {
-                    "tooltip": "[point mode] Foreground points at this frame. Connect from VLMtoBBoxAndPoints or VLMtoPoints."
+                    "tooltip": "[point mode] Foreground points at this frame."
                 }),
                 "negative_points": ("SAM3_POINTS_PROMPT", {
                     "tooltip": "[point mode] Background exclusion points at this frame."
                 }),
                 "positive_boxes": ("SAM3_BOXES_PROMPT", {
-                    "tooltip": "[box mode] Bounding box around the target at this frame. Connect from VLMtoBBox or VLMtoBBoxAndPoints."
+                    "tooltip": "[box mode] Bounding box around the target at this frame."
                 }),
                 "negative_boxes": ("SAM3_BOXES_PROMPT", {
                     "tooltip": "[box mode] Bounding box region to exclude at this frame."
@@ -895,5 +863,173 @@ class SAMheraAddFramePrompt:
         return (video_state,)
 
 
-NODE_CLASS_MAPPINGS["SAMheraAddFramePrompt"] = SAMheraAddFramePrompt
-NODE_DISPLAY_NAME_MAPPINGS["SAMheraAddFramePrompt"] = "Add Frame Prompt [SAMhera]"
+# =============================================================================
+# VLMFacePartsBBox
+# Face-specialized multi-part segmentation for SAM3 video.
+# Outputs separate SAM3_BOXES_PROMPT for: hair | face | neck | face+neck | clothing
+# Each output connects to a separate SAM3VideoSegmentation with a different obj_id.
+# =============================================================================
+
+FACE_PART_PROMPTS = {
+    "hair":      "The person's hair only — scalp to hairline tips, including all strands. Exclude forehead.",
+    "face":      "The person's face skin only — forehead, cheeks, nose, lips, chin. Exclude hair, ears, neck.",
+    "neck":      "The person's neck only — below chin to top of collar/shoulders. Exclude face and clothing.",
+    "face_neck": "The person's face AND neck combined — from forehead to collar. Exclude hair.",
+    "clothing":  "The person's clothing/outfit — shirt, dress, jacket etc. Exclude skin, hair.",
+}
+
+
+class VLMFacePartsBBox:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image":      ("IMAGE",),
+                "api":        ("SAMHERA_API",),
+                "model_name": (["gemini-2.5-pro", "gemini-2.5-flash", "gpt-4o"], {"default": "gemini-2.5-pro"}),
+                "person_box": ("SAM3_BOXES_PROMPT", {
+                    "tooltip": "Bounding box of the full person — use VLMtoBBox first. Crops image before sending to VLM for accuracy."
+                }),
+            },
+            "optional": {
+                "score_threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.05,
+                    "tooltip": "VLM confidence below this value returns empty box for that part."}),
+                "padding_px": ("INT", {"default": 8, "min": 0, "max": 40,
+                    "tooltip": "Pixel padding added around each returned box."}),
+            }
+        }
+
+    RETURN_TYPES  = (
+        "SAM3_BOXES_PROMPT",  # hair
+        "SAM3_BOXES_PROMPT",  # face
+        "SAM3_BOXES_PROMPT",  # neck
+        "SAM3_BOXES_PROMPT",  # face_neck
+        "SAM3_BOXES_PROMPT",  # clothing
+        "STRING",             # raw_vlm_response
+    )
+    RETURN_NAMES  = ("hair", "face", "neck", "face_neck", "clothing", "raw_vlm_response")
+    FUNCTION      = "run"
+    CATEGORY      = "SAMhera/Face"
+
+    def run(self, image, api, model_name, person_box,
+            score_threshold=0.5, padding_px=8):
+
+        api_key  = api["api_key"]
+        provider = api["provider"]
+
+        pil_full = _tensor_to_pil(image)
+        W, H = pil_full.size
+
+        # Crop to person bounding box for accuracy
+        pil_img = pil_full
+        crop_x1, crop_y1 = 0, 0
+        crop_w, crop_h = W, H
+
+        if person_box and person_box.get("boxes"):
+            cx_n, cy_n, bw_n, bh_n = person_box["boxes"][0]
+            cx1 = max(0, int((cx_n - bw_n/2) * W) - 20)
+            cy1 = max(0, int((cy_n - bh_n/2) * H) - 20)
+            cx2 = min(W, int((cx_n + bw_n/2) * W) + 20)
+            cy2 = min(H, int((cy_n + bh_n/2) * H) + 20)
+            pil_img = pil_full.crop((cx1, cy1, cx2, cy2))
+            crop_x1, crop_y1 = cx1, cy1
+            crop_w, crop_h = cx2 - cx1, cy2 - cy1
+            print(f"[VLMFacePartsBBox] Cropped to person box: [{cx1},{cy1},{cx2},{cy2}], size: {pil_img.size}")
+
+        cW, cH = pil_img.size
+
+        parts_desc = "\n".join(
+            f'  "{k}": {v}' for k, v in FACE_PART_PROMPTS.items()
+        )
+        prompt = (
+            f"Image size: {cW}x{cH} pixels (cropped to person region).\n\n"
+            "Locate each of the following regions on the person and return a TIGHT bounding box.\n"
+            "Use pixel coordinates relative to THIS cropped image.\n\n"
+            "Regions:\n" + parts_desc + "\n\n"
+            "Return ONLY valid JSON, no markdown:\n"
+            "{\n"
+            '  "hair":      {"bbox": [x1,y1,x2,y2], "confidence": 0.0},\n'
+            '  "face":      {"bbox": [x1,y1,x2,y2], "confidence": 0.0},\n'
+            '  "neck":      {"bbox": [x1,y1,x2,y2], "confidence": 0.0},\n'
+            '  "face_neck": {"bbox": [x1,y1,x2,y2], "confidence": 0.0},\n'
+            '  "clothing":  {"bbox": [x1,y1,x2,y2], "confidence": 0.0}\n'
+            "}\n"
+            "Rules:\n"
+            "- x1<x2, y1<y2, tight around region only\n"
+            "- confidence=0.0 if region is not visible or occluded\n"
+            "- face and hair must NOT overlap\n"
+            "- neck box must be BELOW the chin line"
+        )
+
+        raw = _call_vlm(pil_img, prompt, api_key, provider, model_name)
+        print(f"[VLMFacePartsBBox] Raw: {raw}")
+
+        try:
+            data = _parse_json(raw)
+        except Exception as e:
+            print(f"[VLMFacePartsBBox] Parse error: {e}")
+            data = {}
+
+        empty = {"boxes": [], "labels": []}
+
+        def _to_boxes_prompt(part_key):
+            entry = data.get(part_key, {})
+            if not entry or not entry.get("bbox"):
+                return empty
+            conf = float(entry.get("confidence", 1.0))
+            if conf < score_threshold:
+                print(f"[VLMFacePartsBBox] {part_key} confidence {conf:.2f} < threshold, skipping")
+                return empty
+            x1, y1, x2, y2 = entry["bbox"]
+            x1 = max(0, x1 - padding_px); y1 = max(0, y1 - padding_px)
+            x2 = min(cW, x2 + padding_px); y2 = min(cH, y2 + padding_px)
+            # Map back to full image normalized
+            ax1 = (x1 + crop_x1) / W; ay1 = (y1 + crop_y1) / H
+            ax2 = (x2 + crop_x1) / W; ay2 = (y2 + crop_y1) / H
+            cx = (ax1 + ax2) / 2; cy = (ay1 + ay2) / 2
+            bw = ax2 - ax1;        bh = ay2 - ay1
+            print(f"[VLMFacePartsBBox] {part_key}: conf={conf:.2f} box=[{cx:.3f},{cy:.3f},{bw:.3f},{bh:.3f}]")
+            return {"boxes": [[cx, cy, bw, bh]], "labels": [True]}
+
+        return (
+            _to_boxes_prompt("hair"),
+            _to_boxes_prompt("face"),
+            _to_boxes_prompt("neck"),
+            _to_boxes_prompt("face_neck"),
+            _to_boxes_prompt("clothing"),
+            raw,
+        )
+
+
+# =============================================================================
+# Registration
+# =============================================================================
+
+NODE_CLASS_MAPPINGS = {
+    "SAMheraAPIKey":          SAMheraAPIKey,
+    "VLMtoBBoxAndPoints":     VLMtoBBoxAndPoints,
+    "VLMtoBBox":              VLMtoBBox,
+    "VLMtoPoints":            VLMtoPoints,
+    "VLMtoMultiBBox":         VLMtoMultiBBox,
+    "VLMBBoxPreview":         VLMBBoxPreview,
+    "VLMDebugPreview":        VLMDebugPreview,
+    "VLMImageTest":           VLMImageTest,
+    "SAMheraReload":          SAMheraReload,
+    "SAMheraAddFramePrompt":  SAMheraAddFramePrompt,
+    "VLMFacePartsBBox":       VLMFacePartsBBox,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "SAMheraAPIKey":          "SAMhera API Key",
+    "VLMtoBBoxAndPoints":     "VLM -> BBox + Points (SAMhera)",
+    "VLMtoBBox":              "VLM -> BBox (SAMhera)",
+    "VLMtoPoints":            "VLM -> Points (SAMhera)",
+    "VLMtoMultiBBox":         "VLM -> Multi-BBox (SAMhera)",
+    "VLMBBoxPreview":         "VLM BBox Preview (SAMhera)",
+    "VLMDebugPreview":        "VLM Debug Preview (SAMhera)",
+    "VLMImageTest":           "VLM Image Test (SAMhera)",
+    "SAMheraReload":          "SAMhera Reload",
+    "SAMheraAddFramePrompt":  "Add Frame Prompt [SAMhera]",
+    "VLMFacePartsBBox":       "VLM -> Face Parts BBox [SAMhera]",
+}
