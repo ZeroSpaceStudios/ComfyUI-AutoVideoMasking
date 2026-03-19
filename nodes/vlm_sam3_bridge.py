@@ -1,6 +1,6 @@
 """
 VLM -> SAM3 Bridge Node
-Calls a VLM (Gemini / OpenAI) to auto-generate bbox or point prompts,
+Calls Gemini to auto-generate bbox or point prompts,
 then outputs native SAM3_BOX_PROMPT / SAM3_POINTS_PROMPT types that wire
 directly into SAM3Segmentation or SAM3Grounding.
 
@@ -20,20 +20,23 @@ import io
 import numpy as np
 from PIL import Image
 
+DEFAULT_MODEL = "gemini-2.5-pro"
+
 
 # =============================================================================
-# SAMheraAPIKey — output api_key + provider as a single SAMHERA_API type
+# SAMheraAPIKey — set api_key + model_name once, connect to all SAMhera nodes
 # =============================================================================
 
 class SAMheraAPIKey:
-    """Enter API key and provider once, connect to all SAMhera nodes via the api slot."""
+    """Enter API key and model name once, connect to all SAMhera nodes via the api slot."""
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "api_key":  ("STRING",   {"default": "", "multiline": False}),
-                "provider": (["gemini", "openai"], {"default": "gemini"}),
+                "api_key":    ("STRING", {"default": "", "multiline": False}),
+                "model_name": ("STRING", {"default": DEFAULT_MODEL, "multiline": False,
+                               "tooltip": "Gemini model ID, e.g. gemini-2.5-pro or gemini-3.1-pro"}),
             }
         }
 
@@ -42,8 +45,8 @@ class SAMheraAPIKey:
     FUNCTION      = "run"
     CATEGORY      = "SAMhera"
 
-    def run(self, api_key, provider):
-        return ({"api_key": api_key, "provider": provider},)
+    def run(self, api_key, model_name):
+        return ({"api_key": api_key, "model_name": model_name},)
 
 
 # -- helpers ------------------------------------------------------------------
@@ -56,11 +59,6 @@ def _parse_json(text: str) -> dict:
     text = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
     return json.loads(text)
 
-def _pil_to_b64(pil_img: Image.Image) -> str:
-    buf = io.BytesIO()
-    pil_img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
 def _maybe_normalize_corners(x1, y1, x2, y2, W, H):
     if any(v > 2.0 for v in [x1, y1, x2, y2]):
         return x1/W, y1/H, x2/W, y2/H
@@ -69,7 +67,7 @@ def _maybe_normalize_corners(x1, y1, x2, y2, W, H):
 
 # -- Gemini backend -----------------------------------------------------------
 
-def _call_gemini(pil_img, prompt, api_key, model_name="gemini-3.1-pro-preview"):
+def _call_gemini(pil_img, prompt, api_key, model_name=DEFAULT_MODEL):
     try:
         from google import genai
         from google.genai import types
@@ -88,33 +86,11 @@ def _call_gemini(pil_img, prompt, api_key, model_name="gemini-3.1-pro-preview"):
     return response.text
 
 
-# -- OpenAI backend -----------------------------------------------------------
-
-def _call_openai(pil_img, prompt, api_key, model_name="gpt-4o"):
-    try:
-        import openai
-    except ImportError:
-        raise ImportError("openai not installed. Run: pip install openai")
-    client = openai.OpenAI(api_key=api_key)
-    resp = client.chat.completions.create(
-        model=model_name,
-        messages=[{"role": "user", "content": [
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{_pil_to_b64(pil_img)}"}},
-            {"type": "text", "text": prompt},
-        ]}],
-        response_format={"type": "json_object"},
-        max_tokens=512,
-    )
-    return resp.choices[0].message.content
-
-
-def _call_vlm(pil_img, prompt, api_key, provider, model_name):
-    if provider == "gemini":
-        return _call_gemini(pil_img, prompt, api_key, model_name)
-    elif provider == "openai":
-        return _call_openai(pil_img, prompt, api_key, model_name)
-    else:
-        raise ValueError(f"Unknown provider: {provider}")
+def _resolve_api(api, api_key, model_name):
+    """If api dict connected, use its values; otherwise use node's own inputs."""
+    if api is not None:
+        return api["api_key"], api["model_name"]
+    return api_key, model_name
 
 
 # =============================================================================
@@ -127,12 +103,11 @@ class VLMtoBBox:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
-                "api_key": ("STRING", {"default": "", "multiline": False}),
-                "provider": (["gemini", "openai"], {"default": "gemini"}),
-                "model_name": (["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gpt-4o", "gpt-4o-mini"], {"default": "gemini-2.5-pro"}),
+                "image":              ("IMAGE",),
+                "api_key":            ("STRING", {"default": "", "multiline": False}),
+                "model_name":         ("STRING", {"default": DEFAULT_MODEL, "multiline": False}),
                 "target_description": ("STRING", {"default": "the main subject", "multiline": False}),
-                "is_positive": ("BOOLEAN", {"default": True}),
+                "is_positive":        ("BOOLEAN", {"default": True}),
             },
             "optional": {
                 "api": ("SAMHERA_API",),
@@ -149,10 +124,9 @@ class VLMtoBBox:
     FUNCTION      = "run"
     CATEGORY      = "SAMhera"
 
-    def run(self, image, api_key, provider, model_name,
-            target_description, is_positive, few_shot_examples="", confidence_hint=1.0, api=None):
-        if api is not None:
-            api_key = api["api_key"]; provider = api["provider"]
+    def run(self, image, api_key, model_name, target_description, is_positive,
+            few_shot_examples="", confidence_hint=1.0, api=None):
+        api_key, model_name = _resolve_api(api, api_key, model_name)
 
         pil_img = _tensor_to_pil(image)
         W, H = pil_img.size
@@ -170,7 +144,7 @@ class VLMtoBBox:
             + few_shot_block
         )
 
-        raw = _call_vlm(pil_img, prompt, api_key, provider, model_name)
+        raw = _call_gemini(pil_img, prompt, api_key, model_name)
         print(f"[VLMtoBBox] Raw response: {raw}")
 
         try:
@@ -203,13 +177,12 @@ class VLMtoPoints:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
-                "api_key": ("STRING", {"default": "", "multiline": False}),
-                "provider": (["gemini", "openai"], {"default": "gemini"}),
-                "model_name": (["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gpt-4o", "gpt-4o-mini"], {"default": "gemini-2.5-pro"}),
+                "image":              ("IMAGE",),
+                "api_key":            ("STRING", {"default": "", "multiline": False}),
+                "model_name":         ("STRING", {"default": DEFAULT_MODEL, "multiline": False}),
                 "target_description": ("STRING", {"default": "the main subject", "multiline": False}),
-                "num_pos_points": ("INT", {"default": 6, "min": 1, "max": 12}),
-                "num_neg_points": ("INT", {"default": 3, "min": 0, "max": 6}),
+                "num_pos_points":     ("INT", {"default": 6, "min": 1, "max": 12}),
+                "num_neg_points":     ("INT", {"default": 3, "min": 0, "max": 6}),
             },
             "optional": {
                 "api": ("SAMHERA_API",),
@@ -228,12 +201,9 @@ class VLMtoPoints:
     FUNCTION      = "run"
     CATEGORY      = "SAMhera"
 
-    def run(self, image, api_key, provider, model_name,
-            target_description, num_pos_points, num_neg_points,
+    def run(self, image, api_key, model_name, target_description, num_pos_points, num_neg_points,
             bbox_context=None, few_shot_examples="", api=None):
-
-        if api is not None:
-            api_key = api["api_key"]; provider = api["provider"]
+        api_key, model_name = _resolve_api(api, api_key, model_name)
 
         pil_img = _tensor_to_pil(image)
         W, H = pil_img.size
@@ -242,7 +212,6 @@ class VLMtoPoints:
         if few_shot_examples.strip():
             few_shot_block = "\n\nAdditional guidance:\n" + few_shot_examples.strip()
 
-        # Build prompt — if bbox_context given, image will be cropped so coords are relative to crop
         if bbox_context is not None and len(bbox_context.get("boxes", [])) > 0:
             size_note = "This image is already cropped tightly around the target object."
         else:
@@ -260,7 +229,6 @@ class VLMtoPoints:
             + few_shot_block
         )
 
-        # Crop image to bbox so Gemini can only see (and click) inside the object region
         crop_x1, crop_y1, crop_w, crop_h = 0, 0, W, H
         send_img = pil_img
 
@@ -277,7 +245,7 @@ class VLMtoPoints:
             print(f"[VLMtoPoints] Cropped to bbox: [{cx1},{cy1},{cx2},{cy2}], crop size: {send_img.size}")
 
         print(f"[VLMtoPoints] Sending image size: {send_img.size}")
-        raw = _call_vlm(send_img, prompt, api_key, provider, model_name)
+        raw = _call_gemini(send_img, prompt, api_key, model_name)
         print(f"[VLMtoPoints] Raw response: {raw}")
 
         try:
@@ -296,7 +264,6 @@ class VLMtoPoints:
             pts, lbls = [], []
             for pt in pts_raw:
                 x, y = pt[0], pt[1]
-                # pts are relative to cropped image (pixels) -> map back to full image normalized
                 abs_x = (x * crop_w + crop_x1) if x <= 1.5 else (x + crop_x1)
                 abs_y = (y * crop_h + crop_y1) if y <= 1.5 else (y + crop_y1)
                 nx = max(0.0, min(1.0, abs_x / W))
@@ -323,12 +290,11 @@ class VLMtoMultiBBox:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
-                "api_key": ("STRING", {"default": "", "multiline": False}),
-                "provider": (["gemini", "openai"], {"default": "gemini"}),
-                "model_name": (["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gpt-4o", "gpt-4o-mini"], {"default": "gemini-2.5-pro"}),
+                "image":              ("IMAGE",),
+                "api_key":            ("STRING", {"default": "", "multiline": False}),
+                "model_name":         ("STRING", {"default": DEFAULT_MODEL, "multiline": False}),
                 "target_description": ("STRING", {"default": "all bags", "multiline": False}),
-                "max_objects": ("INT", {"default": 3, "min": 1, "max": 5}),
+                "max_objects":        ("INT", {"default": 3, "min": 1, "max": 5}),
             },
             "optional": {
                 "api": ("SAMHERA_API",),
@@ -345,10 +311,9 @@ class VLMtoMultiBBox:
     FUNCTION      = "run"
     CATEGORY      = "SAMhera"
 
-    def run(self, image, api_key, provider, model_name,
-            target_description, max_objects, few_shot_examples="", api=None):
-        if api is not None:
-            api_key = api["api_key"]; provider = api["provider"]
+    def run(self, image, api_key, model_name, target_description, max_objects,
+            few_shot_examples="", api=None):
+        api_key, model_name = _resolve_api(api, api_key, model_name)
 
         pil_img = _tensor_to_pil(image)
         W, H = pil_img.size
@@ -366,7 +331,7 @@ class VLMtoMultiBBox:
             + few_shot_block
         )
 
-        raw = _call_vlm(pil_img, prompt, api_key, provider, model_name)
+        raw = _call_gemini(pil_img, prompt, api_key, model_name)
         print(f"[VLMtoMultiBBox] Raw: {raw}")
 
         try:
@@ -449,7 +414,7 @@ class VLMBBoxPreview:
 class VLMDebugPreview:
     """
     All-in-one debug overlay.
-    - boxes_prompt  -> colored rectangles with index
+    - boxes_prompt    -> colored rectangles with index
     - positive_points -> green filled circles (fg)
     - negative_points -> red circles with X (bg)
     All inputs optional.
@@ -523,33 +488,32 @@ class VLMDebugPreview:
 
 # =============================================================================
 # Node 6 -- VLMImageTest
-#   Asks VLM "what do you see?" to verify image is being received correctly
+#   Asks Gemini "what do you see?" to verify image is being received correctly
 # =============================================================================
 
 class VLMImageTest:
     """
-    Debug node: verifies VLM is receiving the image correctly.
-    Outputs api (SAMHERA_API) and model_name — connect to other SAMhera nodes.
+    Debug node: verifies Gemini is receiving the image correctly.
+    Outputs api (SAMHERA_API) — connect to other SAMhera nodes.
     """
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image":    ("IMAGE",),
-                "api_key":  ("STRING", {"default": "", "multiline": False}),
-                "provider": (["gemini", "openai"], {"default": "gemini"}),
-                "model_name": (["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gpt-4o", "gpt-4o-mini"], {"default": "gemini-2.5-pro"}),
+                "image":      ("IMAGE",),
+                "api_key":    ("STRING", {"default": "", "multiline": False}),
+                "model_name": ("STRING", {"default": DEFAULT_MODEL, "multiline": False}),
             },
         }
 
-    RETURN_TYPES  = ("STRING", "SAMHERA_API", "STRING", "STRING", "STRING")
-    RETURN_NAMES  = ("description", "api", "api_key", "provider", "model_name")
+    RETURN_TYPES  = ("STRING", "SAMHERA_API", "STRING", "STRING")
+    RETURN_NAMES  = ("description", "api", "api_key", "model_name")
     FUNCTION      = "run"
     CATEGORY      = "SAMhera"
     OUTPUT_NODE   = True
 
-    def run(self, image, api_key="", provider="gemini", model_name="gemini-2.5-pro"):
+    def run(self, image, api_key="", model_name=DEFAULT_MODEL):
         pil_img = _tensor_to_pil(image)
         print(f"[VLMImageTest] Image size: {pil_img.size}, mode: {pil_img.mode}")
 
@@ -560,14 +524,9 @@ class VLMImageTest:
             "Be specific about colors, sizes, and locations."
         )
 
-        raw = _call_vlm(pil_img, prompt, api_key, provider, model_name)
+        raw = _call_gemini(pil_img, prompt, api_key, model_name)
         print(f"[VLMImageTest] Response: {raw}")
-        return (raw, {"api_key": api_key, "provider": provider}, api_key, provider, model_name)
-
-
-# =============================================================================
-# Registration
-# =============================================================================
+        return (raw, {"api_key": api_key, "model_name": model_name}, api_key, model_name)
 
 
 # =============================================================================
@@ -576,7 +535,7 @@ class VLMImageTest:
 
 class VLMtoBBoxAndPoints:
     """
-    Single VLM call returning bbox AND points together.
+    Single Gemini call returning bbox AND points together.
     Consistent coordinates — same reasoning context for both.
     """
 
@@ -584,11 +543,13 @@ class VLMtoBBoxAndPoints:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
+                "image":              ("IMAGE",),
+                "api_key":            ("STRING", {"default": "", "multiline": False}),
+                "model_name":         ("STRING", {"default": DEFAULT_MODEL, "multiline": False}),
                 "target_description": ("STRING", {"default": "the main subject", "multiline": False}),
-                "num_pos_points": ("INT", {"default": 6, "min": 1, "max": 12}),
-                "num_neg_points": ("INT", {"default": 3, "min": 0, "max": 6}),
-                "is_positive": ("BOOLEAN", {"default": True}),
+                "num_pos_points":     ("INT", {"default": 6, "min": 1, "max": 12}),
+                "num_neg_points":     ("INT", {"default": 3, "min": 0, "max": 6}),
+                "is_positive":        ("BOOLEAN", {"default": True}),
             },
             "optional": {
                 "api": ("SAMHERA_API",),
@@ -601,12 +562,9 @@ class VLMtoBBoxAndPoints:
     FUNCTION      = "run"
     CATEGORY      = "SAMhera"
 
-    def run(self, image, target_description, num_pos_points, num_neg_points,
+    def run(self, image, api_key, model_name, target_description, num_pos_points, num_neg_points,
             is_positive, api=None, few_shot_examples=""):
-
-        api_key    = api["api_key"]                           if api else ""
-        provider   = api["provider"]                          if api else "gemini"
-        model_name = api.get("model_name", "gemini-2.5-pro")  if api else "gemini-2.5-pro"
+        api_key, model_name = _resolve_api(api, api_key, model_name)
 
         pil_img = _tensor_to_pil(image)
         W, H = pil_img.size
@@ -624,11 +582,11 @@ class VLMtoBBoxAndPoints:
             f"3. Place {num_neg_points} negative point(s) on anything that is NOT {target_description} — "
             "near its boundary, visually similar regions.\n\n"
             "Return ONLY this JSON (no explanation, no markdown):\n"
-            '{"bbox": [x1, y1, x2, y2], "positive": [[x, y], ...], "negative": [[x, y], ...]}' 
+            '{"bbox": [x1, y1, x2, y2], "positive": [[x, y], ...], "negative": [[x, y], ...]}'
             + few_shot_block
         )
 
-        raw = _call_vlm(pil_img, prompt, api_key, provider, model_name)
+        raw = _call_gemini(pil_img, prompt, api_key, model_name)
         print(f"[VLMtoBBoxAndPoints] Raw: {raw}")
 
         try:
@@ -645,7 +603,6 @@ class VLMtoBBoxAndPoints:
         pos_raw = pos_raw[:num_pos_points]
         neg_raw = neg_raw[:num_neg_points]
 
-        # bbox → normalized center format
         x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
         cx = (x1n + x2n) / 2;  cy = (y1n + y2n) / 2
         bw = x2n - x1n;        bh = y2n - y1n
@@ -653,7 +610,6 @@ class VLMtoBBoxAndPoints:
         box_prompt   = {"box":   [cx, cy, bw, bh], "label": is_positive}
         boxes_prompt = {"boxes": [[cx, cy, bw, bh]], "labels": [is_positive]}
 
-        # points → normalized
         def to_norm(pts, label_val):
             result, lbls = [], []
             for pt in pts:
@@ -670,7 +626,6 @@ class VLMtoBBoxAndPoints:
         print(f"[VLMtoBBoxAndPoints] neg ({len(negative_points['points'])}): {negative_points['points']}")
 
         return (box_prompt, boxes_prompt, positive_points, negative_points, raw)
-
 
 
 # =============================================================================
@@ -798,63 +753,6 @@ class SAMheraPasteBackMask:
         return (full,)
 
 
-class SAMheraReload:
-    """
-    Reloads SAMhera node code instantly — no ComfyUI restart needed.
-    Save your changes to vlm_sam3_bridge.py, then run this node.
-    Note: existing node instances keep old behavior until you re-add them.
-    New nodes added after reload will use updated code.
-    """
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {"required": {"reload": ("BOOLEAN", {"default": True})}}
-
-    RETURN_TYPES  = ("STRING",)
-    RETURN_NAMES  = ("status",)
-    FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
-    OUTPUT_NODE   = True
-
-    def run(self, reload):
-        if not reload:
-            return ("Skipped.",)
-
-        import importlib
-        import sys
-
-        reloaded, failed = [], []
-
-        for mod_name in list(sys.modules.keys()):
-            if "vlm_sam3_bridge" in mod_name:
-                try:
-                    importlib.reload(sys.modules[mod_name])
-                    reloaded.append(mod_name)
-                except Exception as e:
-                    failed.append(f"{mod_name}: {e}")
-
-        if reloaded:
-            try:
-                mod = sys.modules[reloaded[0]]
-                # Update global ComfyUI node registry
-                import nodes as comfy_nodes
-                comfy_nodes.NODE_CLASS_MAPPINGS.update(mod.NODE_CLASS_MAPPINGS)
-                comfy_nodes.NODE_DISPLAY_NAME_MAPPINGS.update(mod.NODE_DISPLAY_NAME_MAPPINGS)
-                status = f"✓ Reloaded. Re-add nodes to use updated code."
-            except Exception as e:
-                status = f"✓ Module reloaded but registry update failed: {e}"
-        else:
-            status = "Module not in sys.modules — full restart required (first time only)."
-
-        if failed:
-            status += f"\n✗ Failed: {', '.join(failed)}"
-
-        print(f"[SAMhera] Reload: {status}")
-        return (status,)
-
-
-
-
 # =============================================================================
 # SAMheraAddFramePrompt
 # Adds point or box prompts to an existing SAM3_VIDEO_STATE at a target frame.
@@ -907,13 +805,13 @@ class SAMheraAddFramePrompt:
             },
             "optional": {
                 "positive_points": ("SAM3_POINTS_PROMPT", {
-                    "tooltip": "[point mode] Foreground points at this frame. Connect from VLMtoBBoxAndPoints or VLMtoPoints."
+                    "tooltip": "[point mode] Foreground points at this frame."
                 }),
                 "negative_points": ("SAM3_POINTS_PROMPT", {
                     "tooltip": "[point mode] Background exclusion points at this frame."
                 }),
                 "positive_boxes": ("SAM3_BOXES_PROMPT", {
-                    "tooltip": "[box mode] Bounding box around the target at this frame. Connect from VLMtoBBox or VLMtoBBoxAndPoints."
+                    "tooltip": "[box mode] Bounding box around the target at this frame."
                 }),
                 "negative_boxes": ("SAM3_BOXES_PROMPT", {
                     "tooltip": "[box mode] Bounding box region to exclude at this frame."
@@ -992,6 +890,9 @@ class SAMheraAddFramePrompt:
         return (video_state,)
 
 
+# =============================================================================
+# VLMFacePartsBBox
+# =============================================================================
 
 FACE_PARTS = ["hair", "face", "neck", "face_neck", "clothing"]
 
@@ -1011,9 +912,8 @@ class VLMFacePartsBBox:
             "required": {
                 "image":      ("IMAGE",),
                 "api":        ("SAMHERA_API",),
-                "model_name": (["gemini-2.5-pro", "gemini-2.5-flash", "gpt-4o"], {"default": "gemini-2.5-pro"}),
                 "person_box": ("SAM3_BOXES_PROMPT", {
-                    "tooltip": "Bounding box of the full person — use VLMtoBBox first. Crops image before sending to VLM for accuracy."
+                    "tooltip": "Bounding box of the full person — use VLMtoBBox first."
                 }),
             },
             "optional": {
@@ -1036,17 +936,13 @@ class VLMFacePartsBBox:
     FUNCTION      = "run"
     CATEGORY      = "SAMhera/Face"
 
-    def run(self, image, api, model_name, person_box,
-            score_threshold=0.5, padding_px=8):
-
-
-        api_key  = api["api_key"]
-        provider = api["provider"]
+    def run(self, image, api, person_box, score_threshold=0.5, padding_px=8):
+        api_key    = api["api_key"]
+        model_name = api["model_name"]
 
         pil_full = _tensor_to_pil(image)
         W, H = pil_full.size
 
-        # Crop to person bounding box for accuracy
         pil_img, crop_x1, crop_y1, crop_w, crop_h = pil_full, 0, 0, W, H
         if person_box and person_box.get("boxes"):
             cx_n, cy_n, bw_n, bh_n = person_box["boxes"][0]
@@ -1060,7 +956,6 @@ class VLMFacePartsBBox:
 
         cW, cH = pil_img.size
 
-        # Build single-call multi-part prompt
         parts_desc = "\n".join(
             f'  "{k}": {v}' for k, v in FACE_PART_PROMPTS.items()
         )
@@ -1084,7 +979,7 @@ class VLMFacePartsBBox:
             "- neck box must be BELOW the chin line"
         )
 
-        raw = _call_vlm(pil_img, prompt, api_key, provider, model_name)
+        raw = _call_gemini(pil_img, prompt, api_key, model_name)
         print(f"[VLMFacePartsBBox] Raw: {raw}")
 
         try:
@@ -1104,10 +999,8 @@ class VLMFacePartsBBox:
                 print(f"[VLMFacePartsBBox] {part_key} confidence {conf:.2f} < threshold, skipping")
                 return empty
             x1, y1, x2, y2 = entry["bbox"]
-            # Add padding
             x1 = max(0, x1 - padding_px); y1 = max(0, y1 - padding_px)
             x2 = min(cW, x2 + padding_px); y2 = min(cH, y2 + padding_px)
-            # Map back to full image normalized
             ax1 = (x1 + crop_x1) / W; ay1 = (y1 + crop_y1) / H
             ax2 = (x2 + crop_x1) / W; ay2 = (y2 + crop_y1) / H
             cx = (ax1 + ax2) / 2; cy = (ay1 + ay2) / 2
@@ -1124,8 +1017,9 @@ class VLMFacePartsBBox:
             raw,
         )
 
+
 # =============================================================================
-# Registration — all classes defined above, single dict at bottom
+# Registration
 # =============================================================================
 
 NODE_CLASS_MAPPINGS = {
@@ -1137,7 +1031,6 @@ NODE_CLASS_MAPPINGS = {
     "VLMBBoxPreview":         VLMBBoxPreview,
     "VLMDebugPreview":        VLMDebugPreview,
     "VLMImageTest":           VLMImageTest,
-    "SAMheraReload":          SAMheraReload,
     "SAMheraAddFramePrompt":  SAMheraAddFramePrompt,
     "VLMFacePartsBBox":       VLMFacePartsBBox,
     "SAMheraCropByBox":       SAMheraCropByBox,
@@ -1153,7 +1046,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VLMBBoxPreview":         "VLM BBox Preview (SAMhera)",
     "VLMDebugPreview":        "VLM Debug Preview (SAMhera)",
     "VLMImageTest":           "VLM Image Test (SAMhera)",
-    "SAMheraReload":          "SAMhera Reload",
     "SAMheraAddFramePrompt":  "Add Frame Prompt [SAMhera]",
     "VLMFacePartsBBox":       "VLM -> Face Parts BBox [SAMhera]",
     "SAMheraCropByBox":       "Crop by Box [SAMhera]",
