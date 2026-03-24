@@ -1421,6 +1421,101 @@ class SAMheraReferenceMatch:
 
 
 # =============================================================================
+# SAMheraLayerSelector — extract a single layer from a SAMHERA_LAYER_SET
+# =============================================================================
+
+def _extract_mask_from_video_masks(video_masks):
+    """Convert SAM3_VIDEO_MASKS {frame_idx: {"mask": [N,H,W]} | tensor} → MASK [F,H,W]."""
+    import torch
+    frame_indices = sorted(k for k in video_masks if isinstance(k, int))
+    if not frame_indices:
+        return torch.zeros(1, 8, 8)
+
+    frame_tensors = []
+    ref_h, ref_w = None, None
+
+    for idx in frame_indices:
+        data = video_masks[idx]
+        m = data.get("mask") if isinstance(data, dict) else data
+
+        if m is None:
+            h, w = ref_h or 8, ref_w or 8
+            frame_tensors.append(torch.zeros(h, w))
+            continue
+
+        # m: [N, H, W] or [H, W]
+        if m.dim() == 3:
+            m = m[0]  # first object (obj_id=1 → index 0)
+
+        ref_h, ref_w = m.shape[-2], m.shape[-1]
+        frame_tensors.append(m.float())
+
+    return torch.stack(frame_tensors, dim=0)  # [F, H, W]
+
+
+class SAMheraLayerSelector:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "layer_set":  ("SAMHERA_LAYER_SET",),
+                "layer_name": ("STRING", {"default": "face", "multiline": False,
+                               "tooltip": "Exact label or case-insensitive substring match."}),
+            }
+        }
+
+    RETURN_TYPES = ("MASK", "SAM3_BOXES_PROMPT", "STRING")
+    RETURN_NAMES = ("mask", "boxes_prompt", "available_layers")
+    FUNCTION = "run"
+    CATEGORY = "SAMhera"
+
+    def run(self, layer_set, layer_name):
+        import torch
+
+        available = list(layer_set.keys())
+        available_str = ", ".join(available)
+        empty_boxes = {"boxes": [], "labels": []}
+        empty_mask  = torch.zeros(1, 8, 8)
+
+        # Resolve key: exact → case-insensitive substring
+        value, matched = None, None
+        if layer_name in layer_set:
+            value, matched = layer_set[layer_name], layer_name
+        else:
+            needle = layer_name.lower()
+            for key in layer_set:
+                if needle in key.lower() or key.lower() in needle:
+                    value, matched = layer_set[key], key
+                    break
+
+        if value is None:
+            print(f"[SAMheraLayerSelector] '{layer_name}' not found. Available: {available_str}")
+            return (empty_mask, empty_boxes, available_str)
+
+        print(f"[SAMheraLayerSelector] Matched '{matched}' for query '{layer_name}'")
+
+        # SAM3_BOXES_PROMPT: dict with "boxes" key  (from SAMheraAutoLayer)
+        if isinstance(value, dict) and "boxes" in value:
+            print(f"[SAMheraLayerSelector] Type: SAM3_BOXES_PROMPT — returning boxes, empty mask")
+            return (empty_mask, value, available_str)
+
+        # SAM3_VIDEO_MASKS: dict with int frame-index keys (from SAMheraLayerPropagate)
+        if isinstance(value, dict) and any(isinstance(k, int) for k in value):
+            print(f"[SAMheraLayerSelector] Type: SAM3_VIDEO_MASKS — extracting mask tensor")
+            try:
+                mask = _extract_mask_from_video_masks(value)
+                print(f"[SAMheraLayerSelector] Mask shape: {mask.shape}")
+                return (mask, empty_boxes, available_str)
+            except Exception as e:
+                print(f"[SAMheraLayerSelector] Extraction failed: {e}")
+                return (empty_mask, empty_boxes, available_str)
+
+        print(f"[SAMheraLayerSelector] '{matched}' has no usable data (None or unknown type)")
+        return (empty_mask, empty_boxes, available_str)
+
+
+# =============================================================================
 # Registration
 # =============================================================================
 
@@ -1442,6 +1537,7 @@ NODE_CLASS_MAPPINGS = {
     "SAMheraAutoLayer":       SAMheraAutoLayer,
     "SAMheraLayerPropagate":  SAMheraLayerPropagate,
     "SAMheraReferenceMatch":  SAMheraReferenceMatch,
+    "SAMheraLayerSelector":   SAMheraLayerSelector,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1462,4 +1558,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SAMheraAutoLayer":       "Auto Layer Detect [SAMhera]",
     "SAMheraLayerPropagate":  "Layer Propagate [SAMhera]",
     "SAMheraReferenceMatch":  "Reference Match [SAMhera]",
+    "SAMheraLayerSelector":   "Layer Selector [SAMhera]",
 }
