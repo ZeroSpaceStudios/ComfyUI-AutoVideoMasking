@@ -548,8 +548,10 @@ class SAMheraCropByBox:
                 "boxes_prompt": ("SAM3_BOXES_PROMPT",),
             },
             "optional": {
-                "padding":   ("INT", {"default": 16, "min": 0, "max": 128}),
-                "box_index": ("INT", {"default": 0,  "min": 0, "max": 4}),
+                "padding":        ("INT",     {"default": 16,   "min": 0,   "max": 128}),
+                "box_index":      ("INT",     {"default": 0,    "min": 0,   "max": 4}),
+                "normalize_size": ("BOOLEAN", {"default": True}),
+                "target_long_side": ("INT",   {"default": 1008, "min": 256, "max": 4096}),
             }
         }
 
@@ -558,22 +560,51 @@ class SAMheraCropByBox:
     FUNCTION      = "run"
     CATEGORY      = "SAMhera/Face"
 
-    def run(self, image, boxes_prompt, padding=16, box_index=0):
+    def run(self, image, boxes_prompt, padding=16, box_index=0,
+            normalize_size=True, target_long_side=1008):
         import torch
+        import torch.nn.functional as F
         B, H, W, C = image.shape
         boxes = boxes_prompt.get("boxes", [])
 
         if not boxes or box_index >= len(boxes):
-            return (image, {"x1": 0, "y1": 0, "x2": W, "y2": H, "orig_w": W, "orig_h": H})
+            meta = {"x1": 0, "y1": 0, "x2": W, "y2": H,
+                    "orig_w": W, "orig_h": H, "scale": 1.0,
+                    "resized_w": W, "resized_h": H}
+            return (image, meta)
 
         cx, cy, bw, bh = boxes[box_index]
-        x1 = max(0, int((cx-bw/2)*W) - padding)
-        y1 = max(0, int((cy-bh/2)*H) - padding)
-        x2 = min(W, int((cx+bw/2)*W) + padding)
-        y2 = min(H, int((cy+bh/2)*H) + padding)
+        x1 = max(0, int((cx - bw / 2) * W) - padding)
+        y1 = max(0, int((cy - bh / 2) * H) - padding)
+        x2 = min(W, int((cx + bw / 2) * W) + padding)
+        y2 = min(H, int((cy + bh / 2) * H) + padding)
 
-        print(f"[SAMheraCropByBox] [{x1},{y1},{x2},{y2}] from {W}x{H}")
-        return (image[:, y1:y2, x1:x2, :], {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "orig_w": W, "orig_h": H})
+        cropped = image[:, y1:y2, x1:x2, :]   # [B, ch, cw, C]
+        crop_h, crop_w = y2 - y1, x2 - x1
+
+        scale = 1.0
+        out_h, out_w = crop_h, crop_w
+
+        if normalize_size:
+            scale = target_long_side / max(crop_h, crop_w)
+            if scale != 1.0:
+                out_h = round(crop_h * scale)
+                out_w = round(crop_w * scale)
+                # interpolate expects [B, C, H, W]
+                cropped = F.interpolate(
+                    cropped.permute(0, 3, 1, 2).float(),
+                    size=(out_h, out_w),
+                    mode="bilinear", align_corners=False
+                ).permute(0, 2, 3, 1)
+
+        meta = {
+            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+            "orig_w": W, "orig_h": H,
+            "scale": scale, "resized_w": out_w, "resized_h": out_h,
+        }
+        print(f"[SAMheraCropByBox] crop=[{x1},{y1},{x2},{y2}] {crop_w}x{crop_h}"
+              f" → {out_w}x{out_h} (scale={scale:.3f})")
+        return (cropped, meta)
 
 
 # =============================================================================
@@ -605,14 +636,15 @@ class SAMheraPasteBackMask:
 
         x1, y1, x2, y2 = crop_meta["x1"], crop_meta["y1"], crop_meta["x2"], crop_meta["y2"]
         orig_w, orig_h  = crop_meta["orig_w"], crop_meta["orig_h"]
+        # Target crop size in original image space (before any resize)
+        exp_h, exp_w = y2 - y1, x2 - x1
 
         if masks.ndim == 4:
             masks = masks.squeeze(1)
 
-        N, crop_h, crop_w = masks.shape
-        exp_h, exp_w = y2-y1, x2-x1
-
-        if crop_h != exp_h or crop_w != exp_w:
+        # Resize mask back to original crop dimensions (undoes normalize_size scale)
+        N, mask_h, mask_w = masks.shape
+        if mask_h != exp_h or mask_w != exp_w:
             masks = F.interpolate(masks.unsqueeze(1).float(), size=(exp_h, exp_w),
                                   mode="bilinear", align_corners=False).squeeze(1)
 
