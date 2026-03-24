@@ -1132,6 +1132,295 @@ class VLMFaceRegion:
 
 
 # =============================================================================
+# SAMheraAutoLayer — one Gemini call → up to 8 layer boxes + layer set
+# =============================================================================
+
+LAYER_PRESETS = {
+    "portrait": [
+        "face skin (forehead, cheeks, nose, chin, excluding hair and neck)",
+        "hair (scalp hair, eyebrows, eyelashes)",
+        "eyes (irises and whites)",
+        "lips and mouth area",
+        "neck and upper chest skin",
+        "clothing and garments",
+        "accessories (jewelry, glasses, earrings, hat)",
+        "background (everything behind the person)",
+    ],
+    "full_body": [
+        "face and head skin",
+        "hair",
+        "upper body clothing (shirt, jacket, top)",
+        "lower body clothing (pants, skirt, shorts)",
+        "shoes and footwear",
+        "hands and arms skin",
+        "accessories (bag, jewelry, glasses, hat)",
+        "background",
+    ],
+    "product": [
+        "main product item",
+        "product packaging or container",
+        "product labels and printed text",
+        "product shadow",
+        "supporting props or context objects",
+        "background",
+    ],
+}
+
+
+class SAMheraAutoLayer:
+
+    LAYER_PRESETS_LIST = ["portrait", "full_body", "product", "custom"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image":        ("IMAGE",),
+                "api":          ("SAMHERA_API",),
+                "layer_preset": (cls.LAYER_PRESETS_LIST, {"default": "portrait"}),
+            },
+            "optional": {
+                "custom_prompt": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "tooltip": "One layer description per line. Used when layer_preset='custom'.",
+                }),
+            }
+        }
+
+    RETURN_TYPES = (
+        "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT",
+        "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT",
+        "SAMHERA_LAYER_SET", "STRING", "STRING",
+    )
+    RETURN_NAMES = (
+        "layer_1", "layer_2", "layer_3", "layer_4",
+        "layer_5", "layer_6", "layer_7", "layer_8",
+        "layer_set", "label_list", "raw_response",
+    )
+    FUNCTION = "run"
+    CATEGORY = "SAMhera"
+
+    def run(self, image, api, layer_preset, custom_prompt=""):
+        pil_img = _tensor_to_pil(image)
+        W, H = pil_img.size
+
+        if layer_preset == "custom":
+            layer_descriptions = [l.strip() for l in custom_prompt.strip().splitlines() if l.strip()]
+            if not layer_descriptions:
+                layer_descriptions = ["main subject", "background"]
+        else:
+            layer_descriptions = LAYER_PRESETS.get(layer_preset, LAYER_PRESETS["portrait"])
+
+        layers_json = json.dumps(layer_descriptions, indent=2)
+        prompt = (
+            f"Image: {W}x{H} pixels.\n"
+            "Detect and return a tight bounding box for each visible layer. "
+            "Skip layers not present. Max 8 results.\n\n"
+            f"Layers to detect:\n{layers_json}\n\n"
+            "Return ONLY valid JSON (no markdown):\n"
+            '{"layers": [\n'
+            '  {"label": "<short noun phrase>", "bbox": [x1, y1, x2, y2], "confidence": 0.9},\n'
+            "  ...\n]}\n"
+            "Rules: pixel coordinates, x1<x2, y1<y2, sorted by confidence descending. "
+            "Omit entries with confidence < 0.3."
+        )
+
+        raw = _call_gemini(pil_img, prompt, api)
+        print(f"[SAMheraAutoLayer] Raw: {raw}")
+
+        try:
+            data = _parse_json(raw)
+            layers = data.get("layers", [])[:8]
+        except Exception as e:
+            print(f"[SAMheraAutoLayer] Parse error: {e}"); layers = []
+
+        empty = {"boxes": [], "labels": []}
+
+        def _to_boxes(entry):
+            x1, y1, x2, y2 = entry["bbox"]
+            x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
+            cx = (x1n + x2n) / 2; cy = (y1n + y2n) / 2
+            return {"boxes": [[cx, cy, x2n - x1n, y2n - y1n]], "labels": [True]}
+
+        boxes_list = [_to_boxes(l) for l in layers]
+        labels = [l.get("label", f"layer_{i+1}") for i, l in enumerate(layers)]
+
+        while len(boxes_list) < 8:
+            boxes_list.append(empty)
+            labels.append("")
+
+        layer_set = {lbl: bp for lbl, bp in zip(labels, boxes_list) if lbl}
+        label_list = "\n".join(f"{i+1}. {lb}" for i, lb in enumerate(labels) if lb)
+
+        print(f"[SAMheraAutoLayer] Detected {len(layers)} layers: {[l for l in labels if l]}")
+        return (*boxes_list, layer_set, label_list, raw)
+
+
+# =============================================================================
+# SAMheraLayerPropagate — propagate every layer through all video frames
+# =============================================================================
+
+class SAMheraLayerPropagate:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_frames": ("IMAGE",),
+                "layer_set":    ("SAMHERA_LAYER_SET",),
+                "sam3_model":   ("SAM3_MODEL",),
+                "frame_idx":    ("INT", {
+                    "default": 0, "min": 0,
+                    "tooltip": "Frame index the layer boxes were detected on.",
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("SAMHERA_LAYER_SET",)
+    RETURN_NAMES = ("propagated_layer_set",)
+    FUNCTION = "run"
+    CATEGORY = "SAMhera"
+
+    def _load_sam3_modules(self):
+        import importlib.util, os as _os
+        sam3_dir = _os.path.normpath(
+            _os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes")
+        )
+
+        def _load(fname):
+            path = _os.path.join(sam3_dir, fname)
+            if not _os.path.exists(path):
+                raise ImportError(f"[SAMheraLayerPropagate] Not found: {path}")
+            spec = importlib.util.spec_from_file_location(
+                f"_samhera_sam3_{fname.replace('.py', '')}", path
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+
+        vs_mod = _load("video_state.py")
+        vn_mod = _load("sam3_video_nodes.py")
+        return vs_mod, vn_mod
+
+    def run(self, video_frames, layer_set, sam3_model, frame_idx):
+        vs_mod, vn_mod = self._load_sam3_modules()
+        create_video_state = vs_mod.create_video_state
+        VideoPrompt = vs_mod.VideoPrompt
+        SAM3Propagate = vn_mod.SAM3Propagate
+
+        propagator = SAM3Propagate()
+        propagated = {}
+
+        for label, boxes_prompt in layer_set.items():
+            if not boxes_prompt or not boxes_prompt.get("boxes"):
+                print(f"[SAMheraLayerPropagate] Skipping '{label}' — no boxes")
+                continue
+
+            print(f"[SAMheraLayerPropagate] Propagating layer: '{label}'")
+            try:
+                video_state = create_video_state(video_frames)
+                cx, cy, bw, bh = boxes_prompt["boxes"][0]
+                box_corners = [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]
+                prompt = VideoPrompt.create_box(frame_idx, 1, box_corners, is_positive=True)
+                video_state = video_state.with_prompt(prompt)
+                result = propagator.propagate(sam3_model, video_state)
+                propagated[label] = result[0]  # SAM3_VIDEO_MASKS
+                print(f"[SAMheraLayerPropagate] '{label}' propagation complete")
+            except Exception as e:
+                print(f"[SAMheraLayerPropagate] '{label}' failed: {e}")
+                propagated[label] = None
+
+        print(f"[SAMheraLayerPropagate] Done. {len(propagated)} layers propagated.")
+        return (propagated,)
+
+
+# =============================================================================
+# SAMheraReferenceMatch — find a subject from a reference image in a target frame
+# =============================================================================
+
+class SAMheraReferenceMatch:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "reference_image": ("IMAGE",),
+                "target_frame":    ("IMAGE",),
+                "api":             ("SAMHERA_API",),
+            },
+            "optional": {
+                "subject_description": ("STRING", {
+                    "default": "the person",
+                    "multiline": False,
+                    "tooltip": "What to find — e.g. 'the person', 'the red bag', 'the cat'.",
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("SAM3_BOXES_PROMPT", "STRING")
+    RETURN_NAMES = ("boxes_prompt", "raw_response")
+    FUNCTION = "run"
+    CATEGORY = "SAMhera"
+
+    def run(self, reference_image, target_frame, api, subject_description="the person"):
+        import io as _io
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError:
+            raise ImportError("google-genai not installed. Run: pip install google-genai")
+
+        ref_pil = _tensor_to_pil(reference_image)
+        tgt_pil = _tensor_to_pil(target_frame)
+        W, H = tgt_pil.size
+
+        prompt = (
+            f"LEFT image: reference showing {subject_description}.\n"
+            f"RIGHT image: target frame, {W}x{H} pixels.\n\n"
+            f"Find {subject_description} from the LEFT image in the RIGHT image. "
+            "Return a tight bounding box in the RIGHT image coordinate space.\n\n"
+            "Return ONLY valid JSON (no markdown):\n"
+            '{"bbox": [x1, y1, x2, y2], "confidence": 0.0-1.0}\n'
+            "Pixel coordinates of the RIGHT image only. x1<x2, y1<y2. "
+            'If the subject is not found, return {"bbox": null, "confidence": 0.0}.'
+        )
+
+        client = genai.Client(api_key=api["api_key"])
+        buf_ref = _io.BytesIO(); ref_pil.save(buf_ref, format="PNG")
+        buf_tgt = _io.BytesIO(); tgt_pil.save(buf_tgt, format="PNG")
+
+        response = client.models.generate_content(
+            model=api["model_name"],
+            contents=[
+                types.Part.from_bytes(data=buf_ref.getvalue(), mime_type="image/png"),
+                types.Part.from_bytes(data=buf_tgt.getvalue(), mime_type="image/png"),
+                types.Part.from_text(text=prompt),
+            ]
+        )
+        raw = response.text
+        print(f"[SAMheraReferenceMatch] Raw: {raw}")
+
+        empty = {"boxes": [], "labels": []}
+        try:
+            data = _parse_json(raw)
+            bbox = data.get("bbox")
+            if not bbox:
+                print(f"[SAMheraReferenceMatch] Subject not found in target frame.")
+                return (empty, raw)
+            x1, y1, x2, y2 = bbox
+            x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
+            cx = (x1n + x2n) / 2; cy = (y1n + y2n) / 2
+            bw = x2n - x1n;       bh = y2n - y1n
+            boxes_prompt = {"boxes": [[cx, cy, bw, bh]], "labels": [True]}
+            print(f"[SAMheraReferenceMatch] box (cx,cy,w,h): [{cx:.3f},{cy:.3f},{bw:.3f},{bh:.3f}]")
+        except Exception as e:
+            print(f"[SAMheraReferenceMatch] Parse error: {e}"); boxes_prompt = empty
+
+        return (boxes_prompt, raw)
+
+
+# =============================================================================
 # Registration
 # =============================================================================
 
@@ -1150,6 +1439,9 @@ NODE_CLASS_MAPPINGS = {
     "VLMFaceRegion":          VLMFaceRegion,
     "SAMheraCropByBox":       SAMheraCropByBox,
     "SAMheraPasteBackMask":   SAMheraPasteBackMask,
+    "SAMheraAutoLayer":       SAMheraAutoLayer,
+    "SAMheraLayerPropagate":  SAMheraLayerPropagate,
+    "SAMheraReferenceMatch":  SAMheraReferenceMatch,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1167,4 +1459,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VLMFaceRegion":          "VLM Face Region [SAMhera]",
     "SAMheraCropByBox":       "Crop by Box [SAMhera]",
     "SAMheraPasteBackMask":   "Paste Back Mask [SAMhera]",
+    "SAMheraAutoLayer":       "Auto Layer Detect [SAMhera]",
+    "SAMheraLayerPropagate":  "Layer Propagate [SAMhera]",
+    "SAMheraReferenceMatch":  "Reference Match [SAMhera]",
 }
