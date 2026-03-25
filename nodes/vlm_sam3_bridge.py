@@ -1340,11 +1340,15 @@ class SAMheraAutoLayer:
     RETURN_TYPES = (
         "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT",
         "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_BOXES_PROMPT",
+        "STRING", "STRING", "STRING", "STRING",
+        "STRING", "STRING", "STRING", "STRING",
         "SAMHERA_LAYER_SET", "STRING", "STRING",
     )
     RETURN_NAMES = (
         "layer_1", "layer_2", "layer_3", "layer_4",
         "layer_5", "layer_6", "layer_7", "layer_8",
+        "label_1", "label_2", "label_3", "label_4",
+        "label_5", "label_6", "label_7", "label_8",
         "layer_set", "label_list", "raw_response",
     )
     FUNCTION = "run"
@@ -1403,7 +1407,7 @@ class SAMheraAutoLayer:
         label_list = "\n".join(f"{i+1}. {lb}" for i, lb in enumerate(labels) if lb)
 
         print(f"[SAMheraAutoLayer] Detected {len(layers)} layers: {[l for l in labels if l]}")
-        return (*boxes_list, layer_set, label_list, raw)
+        return (*boxes_list, *labels, layer_set, label_list, raw)
 
 
 # =============================================================================
