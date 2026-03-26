@@ -360,8 +360,8 @@ class VLMtoBBoxAndPoints:
             }
         }
 
-    RETURN_TYPES  = ("SAM3_BOX_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_POINTS_PROMPT", "STRING")
-    RETURN_NAMES  = ("box_prompt", "boxes_prompt", "positive_points", "negative_points", "raw_vlm_response")
+    RETURN_TYPES  = ("SAM3_BOX_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_BOX_AND_POINT", "STRING")
+    RETURN_NAMES  = ("box_prompt", "boxes_prompt", "positive_points", "negative_points", "box_and_point", "raw_vlm_response")
     FUNCTION      = "run"
     CATEGORY      = "SAMhera"
 
@@ -421,8 +421,14 @@ class VLMtoBBoxAndPoints:
         positive_points = to_norm(pos_raw, 1)
         negative_points = to_norm(neg_raw, 0)
 
+        box_and_point = {
+            "boxes":    boxes_prompt,
+            "positive": positive_points,
+            "negative": negative_points,
+        }
+
         print(f"[VLMtoBBoxAndPoints] box:[{cx:.3f},{cy:.3f},{bw:.3f},{bh:.3f}] pos:{len(positive_points['points'])} neg:{len(negative_points['points'])}")
-        return (box_prompt, boxes_prompt, positive_points, negative_points, raw)
+        return (box_prompt, boxes_prompt, positive_points, negative_points, box_and_point, raw)
 
 
 # =============================================================================
@@ -593,6 +599,7 @@ class VLMDebugPreview:
                 "image": ("IMAGE",),
             },
             "optional": {
+                "box_and_point":   ("SAM3_BOX_AND_POINT",),
                 "boxes_prompt":    ("SAM3_BOXES_PROMPT",),
                 "positive_points": ("SAM3_POINTS_PROMPT",),
                 "negative_points": ("SAM3_POINTS_PROMPT",),
@@ -607,8 +614,12 @@ class VLMDebugPreview:
     FUNCTION      = "draw"
     CATEGORY      = "SAMhera"
 
-    def draw(self, image, boxes_prompt=None, positive_points=None,
+    def draw(self, image, box_and_point=None, boxes_prompt=None, positive_points=None,
              negative_points=None, line_width=3, point_radius=8, show_labels=True):
+        if box_and_point is not None:
+            boxes_prompt    = box_and_point.get("boxes")
+            positive_points = box_and_point.get("positive")
+            negative_points = box_and_point.get("negative")
         import torch
         from PIL import ImageDraw
         pil_img = _tensor_to_pil(image).copy()
@@ -1699,6 +1710,73 @@ class SAMheraLayerSelector:
 
 
 # =============================================================================
+# SAMheraAddFramePromptBundle — add box + points to video_state in one node
+# =============================================================================
+
+class SAMheraAddFramePromptBundle:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_state":   ("SAM3_VIDEO_STATE",),
+                "box_and_point": ("SAM3_BOX_AND_POINT",),
+                "frame_idx":     ("INT", {"default": 15, "min": 0,
+                                  "tooltip": "Frame to anchor prompts on."}),
+                "obj_id":        ("INT", {"default": 1, "min": 1}),
+            }
+        }
+
+    RETURN_TYPES  = ("SAM3_VIDEO_STATE",)
+    RETURN_NAMES  = ("video_state",)
+    FUNCTION      = "run"
+    CATEGORY      = "SAMhera"
+
+    def run(self, video_state, box_and_point, frame_idx, obj_id):
+        import importlib.util, os as _os
+        _base = _os.path.normpath(
+            _os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes", "video_state.py")
+        )
+        if not _os.path.exists(_base):
+            raise ImportError(f"[SAMheraAddFramePromptBundle] video_state.py not found at {_base}")
+        _spec = importlib.util.spec_from_file_location("sam3_video_state", _base)
+        _mod  = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        VideoPrompt = _mod.VideoPrompt
+
+        boxes_prompt    = box_and_point.get("boxes")
+        positive_points = box_and_point.get("positive")
+        negative_points = box_and_point.get("negative")
+
+        # Add bounding box
+        if boxes_prompt and boxes_prompt.get("boxes"):
+            cx, cy, w, h = boxes_prompt["boxes"][0]
+            video_state = video_state.with_prompt(
+                VideoPrompt.create_box(frame_idx, obj_id,
+                                       [cx - w/2, cy - h/2, cx + w/2, cy + h/2],
+                                       is_positive=True)
+            )
+
+        # Add points (positive + negative merged)
+        all_points, all_labels = [], []
+        if positive_points and positive_points.get("points"):
+            for pt in positive_points["points"]:
+                all_points.append([float(pt[0]), float(pt[1])]); all_labels.append(1)
+        if negative_points and negative_points.get("points"):
+            for pt in negative_points["points"]:
+                all_points.append([float(pt[0]), float(pt[1])]); all_labels.append(0)
+        if all_points:
+            video_state = video_state.with_prompt(
+                VideoPrompt.create_point(frame_idx, obj_id, all_points, all_labels)
+            )
+
+        print(f"[SAMheraAddFramePromptBundle] frame={frame_idx} obj={obj_id} "
+              f"box={'yes' if boxes_prompt and boxes_prompt.get('boxes') else 'no'} "
+              f"pts={len(all_points)}")
+        return (video_state,)
+
+
+# =============================================================================
 # SAMheraAutoCrop — presence/discovery call + localization call + crop
 # =============================================================================
 
@@ -1882,7 +1960,8 @@ NODE_CLASS_MAPPINGS = {
     "SAMheraReferenceMatch":  SAMheraReferenceMatch,
     "SAMheraLayerSelector":   SAMheraLayerSelector,
     "VLMPromptEditor":        VLMPromptEditor,
-    "SAMheraAutoCrop":        SAMheraAutoCrop,
+    "SAMheraAutoCrop":              SAMheraAutoCrop,
+    "SAMheraAddFramePromptBundle":  SAMheraAddFramePromptBundle,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1905,5 +1984,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SAMheraReferenceMatch":  "Reference Match [SAMhera]",
     "SAMheraLayerSelector":   "Layer Selector [SAMhera]",
     "VLMPromptEditor":        "VLM Prompt Editor [SAMhera]",
-    "SAMheraAutoCrop":        "Auto Crop [SAMhera]",
+    "SAMheraAutoCrop":              "Auto Crop [SAMhera]",
+    "SAMheraAddFramePromptBundle":  "Add Frame Prompt Bundle [SAMhera]",
 }
