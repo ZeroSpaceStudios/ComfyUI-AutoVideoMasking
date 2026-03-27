@@ -672,7 +672,7 @@ class SAMheraCropByBox:
         return {
             "required": {
                 "image":        ("IMAGE",),
-                "boxes_prompt": ("SAM3_BOXES_PROMPT",),
+                "boxes_prompt": (["SAM3_BOXES_PROMPT", "SAM3_BOX_AND_POINT"],),
             },
             "optional": {
                 "padding":        ("INT",     {"default": 16,   "min": 0,   "max": 128}),
@@ -692,6 +692,9 @@ class SAMheraCropByBox:
         import torch
         import torch.nn.functional as F
         B, H, W, C = image.shape
+        # Accept SAM3_BOX_AND_POINT bundle or plain SAM3_BOXES_PROMPT
+        if "positive" in boxes_prompt:
+            boxes_prompt = boxes_prompt["boxes"]
         boxes = boxes_prompt.get("boxes", [])
 
         if not boxes or box_index >= len(boxes):
