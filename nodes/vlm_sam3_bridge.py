@@ -1410,59 +1410,35 @@ class SAMheraAutoLayer:
             print(f"[SAMheraAutoLayer] Discovery parse error: {e} — falling back to preset")
             discovered = LAYER_PRESETS.get(layer_preset, LAYER_PRESETS["portrait"])
 
-        # ── Call 2: Localization ─────────────────────────────────────
-        # Return tight boxes for the labels Gemini itself identified.
+        # ── Call 2: Localization + Points ─────────────────────────────
+        # Return bbox AND points for every label in one shot, all in original coords.
         labels_json = json.dumps(discovered, indent=2)
         localize_prompt = (
-            f"Image: {W}x{H} pixels.\n\n"
-            f"Return a tight bounding box for each of these regions:\n{labels_json}\n\n"
-            "Pixel coordinates, x1<x2, y1<y2. Skip any region not visible. "
-            "Confidence 0.0-1.0. Omit entries below 0.3.\n\n"
+            f"Image: {W}x{H} pixels. All coordinates are pixel values in this image.\n\n"
+            f"For each region in the list below, return:\n"
+            f"  • A tight bounding box (x1,y1,x2,y2, pixel coords, x1<x2, y1<y2)\n"
+            f"  • {num_pos_points} positive points INSIDE the region "
+            f"(spread across, deep inside, never on edges)\n"
+            f"  • {num_neg_points} negative points OUTSIDE the region "
+            f"(just beyond its boundary)\n\n"
+            f"Regions:\n{labels_json}\n\n"
+            "Skip any region not clearly visible. Confidence 0.0-1.0, omit below 0.3.\n\n"
             "Return ONLY valid JSON (no markdown):\n"
             '{"layers": [\n'
-            '  {"label": "<exact label from list>", "bbox": [x1, y1, x2, y2], "confidence": 0.9},\n'
+            '  {"label": "<exact label>", "bbox": [x1,y1,x2,y2], "confidence": 0.9,\n'
+            '   "positive": [[x,y],...], "negative": [[x,y],...]},\n'
             "  ...\n]}"
         )
 
         raw2 = _call_gemini(pil_img, localize_prompt, api)
-        print(f"[SAMheraAutoLayer] Localization: {raw2}")
-        raw = f"=== Discovery ===\n{raw1}\n\n=== Localization ===\n{raw2}"
+        print(f"[SAMheraAutoLayer] Localize+Points: {raw2}")
+        raw = f"=== Discovery ===\n{raw1}\n\n=== Localize+Points ===\n{raw2}"
 
         try:
             data = _parse_json(raw2)
             layers = data.get("layers", [])[:8]
         except Exception as e:
-            print(f"[SAMheraAutoLayer] Localization parse error: {e}"); layers = []
-
-        # ── Call 3: Points ────────────────────────────────────────────
-        # Ask for positive + negative points for every detected layer in one call.
-        points_data = {}
-        if layers:
-            layers_for_pts = [{"label": l.get("label"), "bbox": l.get("bbox")} for l in layers]
-            points_prompt = (
-                f"Image: {W}x{H} pixels.\n\n"
-                f"For each region below, return exactly {num_pos_points} positive points "
-                f"INSIDE the region (spread across, never on edges) and "
-                f"{num_neg_points} negative points OUTSIDE it (just beyond the boundary).\n\n"
-                f"Regions:\n{json.dumps(layers_for_pts, indent=2)}\n\n"
-                "Return ONLY valid JSON (no markdown):\n"
-                '{"layers": [\n'
-                '  {"label": "<exact label>", "positive": [[x,y],...], "negative": [[x,y],...]},\n'
-                "  ...\n]}"
-            )
-            raw3 = _call_gemini(pil_img, points_prompt, api)
-            print(f"[SAMheraAutoLayer] Points: {raw3}")
-            raw = f"=== Discovery ===\n{raw1}\n\n=== Localization ===\n{raw2}\n\n=== Points ===\n{raw3}"
-            try:
-                data3 = _parse_json(raw3)
-                for entry in data3.get("layers", []):
-                    lbl = entry.get("label", "")
-                    if lbl:
-                        points_data[lbl] = entry
-            except Exception as e:
-                print(f"[SAMheraAutoLayer] Points parse error: {e}")
-        else:
-            raw = f"=== Discovery ===\n{raw1}\n\n=== Localization ===\n{raw2}"
+            print(f"[SAMheraAutoLayer] Localize+Points parse error: {e}"); layers = []
 
         # ── Build outputs ─────────────────────────────────────────────
         empty_boxes  = {"boxes": [], "labels": []}
@@ -1482,10 +1458,8 @@ class SAMheraAutoLayer:
             x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
             cx = (x1n + x2n) / 2; cy = (y1n + y2n) / 2
             boxes = {"boxes": [[cx, cy, x2n - x1n, y2n - y1n]], "labels": [True]}
-            lbl   = entry.get("label", "")
-            pts   = points_data.get(lbl, {})
-            pos   = _norm_pts(pts.get("positive", [])[:num_pos_points], 1)
-            neg   = _norm_pts(pts.get("negative", [])[:num_neg_points], 0)
+            pos   = _norm_pts(entry.get("positive", [])[:num_pos_points], 1)
+            neg   = _norm_pts(entry.get("negative", [])[:num_neg_points], 0)
             return {"boxes": boxes, "positive": pos, "negative": neg}
 
         bundles = [_to_bundle(l) for l in layers]
