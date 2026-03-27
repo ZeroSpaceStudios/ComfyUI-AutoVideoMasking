@@ -735,10 +735,25 @@ class SAMheraCropByBox:
         print(f"[SAMheraCropByBox] crop=[{x1},{y1},{x2},{y2}] {crop_w}x{crop_h}"
               f" → {out_w}x{out_h} (scale={scale:.3f})")
 
-        # Save preview to temp
+        # Save preview to temp with label bar
         fname = f"samhera_crop_{uuid.uuid4().hex[:8]}.png"
         fpath = os.path.join(folder_paths.get_temp_directory(), fname)
-        _tensor_to_pil(cropped).save(fpath)
+        preview = _tensor_to_pil(cropped).copy()
+        if label:
+            from PIL import ImageDraw, ImageFont
+            d   = ImageDraw.Draw(preview)
+            pw, ph = preview.size
+            font_size = max(20, ph // 18)
+            try:
+                font = ImageFont.load_default(size=font_size)
+            except TypeError:
+                font = ImageFont.load_default()
+            bar_h = font_size + 14
+            d.rectangle([0, 0, pw, bar_h], fill=(0, 0, 0))
+            d.text((8, 7), label, fill=(255, 255, 255), font=font)
+        else:
+            preview = _tensor_to_pil(cropped)
+        preview.save(fpath)
 
         return {
             "ui": {

@@ -2,22 +2,25 @@ import { app } from "../../scripts/app.js";
 
 app.registerExtension({
     name: "SAMhera.CropLabel",
-    async nodeCreated(node) {
-        if (node.comfyClass !== "SAMheraCropByBox") return;
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+        if (nodeData.name !== "SAMheraCropByBox") return;
 
-        // Add a read-only text widget to display the label
-        const labelWidget = node.addWidget("text", "crop_label", "", () => {}, {
-            multiline: false,
-            disabled: true,
-        });
-        labelWidget.inputEl && (labelWidget.inputEl.readOnly = true);
+        const origOnExecuted = nodeType.prototype.onExecuted;
+        nodeType.prototype.onExecuted = function (output) {
+            origOnExecuted?.call(this, output);
+            const text = output?.text?.[0];
+            if (!text) return;
 
-        const origOnExecuted = node.onExecuted?.bind(node);
-        node.onExecuted = function(output) {
-            origOnExecuted?.(output);
-            if (output?.text?.length) {
-                labelWidget.value = output.text[0];
+            let w = this.widgets?.find(w => w.name === "_crop_label");
+            if (!w) {
+                w = this.addWidget("string", "_crop_label", "", () => {}, {
+                    multiline: false,
+                    serialize: false,
+                });
+                this.setSize(this.computeSize());
             }
+            w.value = text;
+            this.setDirtyCanvas(true, true);
         };
     },
 });
