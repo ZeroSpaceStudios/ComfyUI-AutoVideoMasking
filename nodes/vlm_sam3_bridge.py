@@ -1818,6 +1818,31 @@ class SAMheraAddFramePromptBundle:
 
 
 # =============================================================================
+# SAMheraUnpackBundle — split SAM3_BOX_AND_POINT into SAM3 native types
+# =============================================================================
+
+class SAMheraUnpackBundle:
+    """Splits a SAM3_BOX_AND_POINT bundle into the three types that
+    SAM3VideoSegmentation already accepts as separate inputs."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"box_and_point": ("SAM3_BOX_AND_POINT",)}}
+
+    RETURN_TYPES  = ("SAM3_BOXES_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_POINTS_PROMPT")
+    RETURN_NAMES  = ("boxes_prompt", "positive_points", "negative_points")
+    FUNCTION      = "run"
+    CATEGORY      = "SAMhera"
+
+    def run(self, box_and_point):
+        return (
+            box_and_point.get("boxes",    {"boxes": [],  "labels": []}),
+            box_and_point.get("positive", {"points": [], "labels": []}),
+            box_and_point.get("negative", {"points": [], "labels": []}),
+        )
+
+
+# =============================================================================
 # SAMheraAutoCrop — presence/discovery call + localization call + crop
 # =============================================================================
 
@@ -2003,6 +2028,7 @@ NODE_CLASS_MAPPINGS = {
     "VLMPromptEditor":        VLMPromptEditor,
     "SAMheraAutoCrop":              SAMheraAutoCrop,
     "SAMheraAddFramePromptBundle":  SAMheraAddFramePromptBundle,
+    "SAMheraUnpackBundle":          SAMheraUnpackBundle,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -2027,4 +2053,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VLMPromptEditor":        "VLM Prompt Editor [SAMhera]",
     "SAMheraAutoCrop":              "Auto Crop [SAMhera]",
     "SAMheraAddFramePromptBundle":  "Add Frame Prompt Bundle [SAMhera]",
+    "SAMheraUnpackBundle":          "Unpack Bundle [SAMhera]",
 }
