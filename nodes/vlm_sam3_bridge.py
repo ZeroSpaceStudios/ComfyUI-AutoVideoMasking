@@ -735,16 +735,21 @@ class SAMheraCropByBox:
         print(f"[SAMheraCropByBox] crop=[{x1},{y1},{x2},{y2}] {crop_w}x{crop_h}"
               f" → {out_w}x{out_h} (scale={scale:.3f})")
 
-        # Save preview to temp
+        # Save preview to temp, with label burned in if provided
         fname = f"samhera_crop_{uuid.uuid4().hex[:8]}.png"
         fpath = os.path.join(folder_paths.get_temp_directory(), fname)
-        _tensor_to_pil(cropped).save(fpath)
+        preview = _tensor_to_pil(cropped).copy()
+        if label:
+            from PIL import ImageDraw
+            d = ImageDraw.Draw(preview)
+            pw, ph = preview.size
+            bar_h = max(24, ph // 16)
+            d.rectangle([0, 0, pw, bar_h], fill=(0, 0, 0, 200))
+            d.text((6, 4), label, fill=(255, 255, 255))
+        preview.save(fpath)
 
         return {
-            "ui": {
-                "images": [{"filename": fname, "subfolder": "", "type": "temp"}],
-                "text":   [label] if label else [],
-            },
+            "ui": {"images": [{"filename": fname, "subfolder": "", "type": "temp"}]},
             "result": (cropped, meta),
         }
 
