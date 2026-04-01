@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 
 app.registerExtension({
-    name: "SAMhera.CropLabel",
+    name: "AVM.CropLabel",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "SAMheraCropByBox") return;
 
