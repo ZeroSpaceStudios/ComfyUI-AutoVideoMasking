@@ -24,7 +24,7 @@ class SAMheraReload:
     RETURN_TYPES  = ("STRING",)
     RETURN_NAMES  = ("status",)
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera/Utils"
+    CATEGORY      = "AVM/Utils"
     OUTPUT_NODE   = True
 
     def run(self, reload):
@@ -72,5 +72,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SAMheraReload": "SAMhera Reload",
+    "SAMheraReload": "AVM Reload",
 }

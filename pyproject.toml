@@ -1,8 +1,8 @@
 [project]
-name = "SAMhera"
+name = "AutoVideoMasking"
 version = "1.0.0"
 description = "VLM-powered auto prompting for SAM3 in ComfyUI"
-authors = [{ name = "SAMhera" }]
+authors = [{ name = "ZeroSpace Studios" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,9 +15,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/SAMhera/SAMhera"
+Homepage = "https://github.com/ZeroSpaceStudios/AutoVideoMasking_SAM_GEMINI"
 
 [tool.comfy]
-PublisherId = "SAMhera"
-DisplayName = "SAMhera"
+PublisherId = "ZeroSpaceStudios"
+DisplayName = "AutoVideoMasking"
 Icon = ""

@@ -41,7 +41,7 @@ class SAMheraAPIKey:
     RETURN_TYPES  = ("SAMHERA_API",)
     RETURN_NAMES  = ("api",)
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, api_key, model_name):
         return ({"api_key": api_key, "model_name": model_name},)
@@ -101,7 +101,7 @@ class VLMImageTest:
     RETURN_TYPES  = ("STRING",)
     RETURN_NAMES  = ("description",)
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
     OUTPUT_NODE   = True
 
     def run(self, image, api):
@@ -139,7 +139,7 @@ class VLMtoBBox:
     RETURN_TYPES  = ("SAM3_BOX_PROMPT", "SAM3_BOXES_PROMPT", "STRING")
     RETURN_NAMES  = ("box_prompt", "boxes_prompt", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, api, target_description, is_positive, few_shot_examples=""):
         pil_img = _tensor_to_pil(image)
@@ -203,7 +203,7 @@ class VLMtoPoints:
     RETURN_TYPES  = ("SAM3_POINTS_PROMPT", "SAM3_POINTS_PROMPT", "STRING")
     RETURN_NAMES  = ("positive_points", "negative_points", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, api, target_description, num_pos_points, num_neg_points,
             bbox_context=None, few_shot_examples=""):
@@ -295,7 +295,7 @@ class VLMtoMultiBBox:
     )
     RETURN_NAMES  = ("box_1", "box_2", "box_3", "box_4", "box_5", "all_boxes", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, api, target_description, max_objects, few_shot_examples=""):
         pil_img = _tensor_to_pil(image)
@@ -363,7 +363,7 @@ class VLMtoBBoxAndPoints:
     RETURN_TYPES  = ("SAM3_BOX_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_BOX_AND_POINT", "STRING")
     RETURN_NAMES  = ("box_prompt", "boxes_prompt", "positive_points", "negative_points", "box_and_point", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, api, target_description, num_pos_points, num_neg_points,
             is_positive, few_shot_examples=""):
@@ -471,7 +471,7 @@ class VLMPromptEditor:
                      "positive_points", "negative_points",
                      "prompt_used", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, api, target_description, num_pos_points,
             num_neg_points, is_positive, override_prompt=""):
@@ -563,7 +563,7 @@ class VLMBBoxPreview:
     RETURN_TYPES  = ("IMAGE",)
     RETURN_NAMES  = ("preview",)
     FUNCTION      = "draw"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def draw(self, image, boxes_prompt, line_width=3, show_index=True):
         import torch
@@ -612,7 +612,7 @@ class VLMDebugPreview:
     RETURN_TYPES  = ("IMAGE",)
     RETURN_NAMES  = ("debug_preview",)
     FUNCTION      = "draw"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def draw(self, image, box_and_point=None, boxes_prompt=None, positive_points=None,
              negative_points=None, line_width=3, point_radius=8, show_labels=True):
@@ -688,7 +688,7 @@ class SAMheraCropByBox:
     RETURN_NAMES  = ("cropped_image", "crop_meta")
     OUTPUT_NODE   = True
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, boxes_prompt, label="", padding=16, box_index=0,
             normalize_size=True, target_long_side=1008):
@@ -787,7 +787,7 @@ class SAMheraPasteBackMask:
     RETURN_TYPES  = ("MASK",)
     RETURN_NAMES  = ("full_masks",)
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera/Face"
+    CATEGORY      = "AVM/Face"
 
     def run(self, masks, crop_meta, feather_px=0):
         import torch
@@ -849,7 +849,7 @@ class SAMheraAddFramePrompt:
     RETURN_TYPES = ("SAM3_VIDEO_STATE",)
     RETURN_NAMES = ("video_state",)
     FUNCTION = "add_frame_prompt"
-    CATEGORY = "SAMhera"
+    CATEGORY      = "AVM"
 
     def add_frame_prompt(self, video_state, prompt_mode, frame_idx, obj_id,
                          positive_points=None, negative_points=None,
@@ -921,7 +921,7 @@ class VLMFacePartsBBox:
     RETURN_TYPES  = ("SAM3_BOXES_PROMPT","SAM3_BOXES_PROMPT","SAM3_BOXES_PROMPT","SAM3_BOXES_PROMPT","SAM3_BOXES_PROMPT","STRING")
     RETURN_NAMES  = ("hair", "face", "neck", "face_neck", "clothing", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera/Face"
+    CATEGORY      = "AVM/Face"
 
     def run(self, image, api, person_box, score_threshold=0.5, padding_px=8):
         pil_full = _tensor_to_pil(image)
@@ -1046,7 +1046,7 @@ class VLMFacePrecisePoints:
     RETURN_TYPES  = ("SAM3_BOX_PROMPT", "SAM3_BOXES_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_POINTS_PROMPT", "STRING")
     RETURN_NAMES  = ("box_prompt", "boxes_prompt", "positive_points", "negative_points", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera/Face"
+    CATEGORY      = "AVM/Face"
 
     def run(self, image, api, face_target, num_fg_points, num_bg_points,
             face_bbox=None, include_beard=True, include_ears=False, crop_padding=20):
@@ -1217,7 +1217,7 @@ class VLMFaceRegion:
                      "box_prompt", "boxes_prompt",
                      "positive_points", "negative_points", "raw_vlm_response")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera/Face"
+    CATEGORY      = "AVM/Face"
 
     def run(self, image, api, region, num_fg_points, num_bg_points,
             crop_padding=24, person_bbox=None):
@@ -1399,7 +1399,7 @@ class SAMheraAutoLayer:
         "layer_set", "label_list", "raw_response",
     )
     FUNCTION = "run"
-    CATEGORY = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, api, layer_preset, custom_prompt="",
             num_pos_points=4, num_neg_points=2):
@@ -1532,7 +1532,7 @@ class SAMheraLayerPropagate:
     RETURN_TYPES = ("SAMHERA_LAYER_SET",)
     RETURN_NAMES = ("propagated_layer_set",)
     FUNCTION = "run"
-    CATEGORY = "SAMhera"
+    CATEGORY      = "AVM"
 
     def _load_sam3_modules(self):
         import importlib.util, os as _os
@@ -1628,7 +1628,7 @@ class SAMheraMultiFrameAutoLayer:
     RETURN_TYPES = ("SAMHERA_MULTI_FRAME_LAYER_SET", "STRING", "STRING")
     RETURN_NAMES = ("multi_frame_layer_set", "label_list", "raw_response")
     FUNCTION = "run"
-    CATEGORY = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, images, frame_indices, api, layer_preset, custom_prompt="",
             num_pos_points=4, num_neg_points=2):
@@ -1786,7 +1786,7 @@ class SAMheraMultiFrameLayerPropagate:
     RETURN_TYPES = ("SAMHERA_LAYER_SET",)
     RETURN_NAMES = ("propagated_layer_set",)
     FUNCTION = "run"
-    CATEGORY = "SAMhera"
+    CATEGORY      = "AVM"
 
     def _load_sam3_modules(self):
         import importlib.util, os as _os
@@ -1880,7 +1880,7 @@ class SAMheraReferenceMatch:
     RETURN_TYPES = ("SAM3_BOXES_PROMPT", "STRING")
     RETURN_NAMES = ("boxes_prompt", "raw_response")
     FUNCTION = "run"
-    CATEGORY = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, reference_image, target_frame, api, subject_description="the person"):
         import io as _io
@@ -1987,7 +1987,7 @@ class SAMheraLayerSelector:
     RETURN_TYPES = ("MASK", "SAM3_BOXES_PROMPT", "STRING")
     RETURN_NAMES = ("mask", "boxes_prompt", "available_layers")
     FUNCTION = "run"
-    CATEGORY = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, layer_set, layer_name):
         import torch
@@ -2055,7 +2055,7 @@ class SAMheraAddFramePromptBundle:
     RETURN_TYPES  = ("SAM3_VIDEO_STATE",)
     RETURN_NAMES  = ("video_state",)
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, video_state, box_and_point, frame_idx, obj_id):
         import importlib.util, os as _os
@@ -2116,7 +2116,7 @@ class SAMheraUnpackBundle:
     RETURN_TYPES  = ("SAM3_BOXES_PROMPT", "SAM3_POINTS_PROMPT", "SAM3_POINTS_PROMPT")
     RETURN_NAMES  = ("boxes_prompt", "positive_points", "negative_points")
     FUNCTION      = "run"
-    CATEGORY      = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, box_and_point):
         return (
@@ -2177,7 +2177,7 @@ class SAMheraAutoCrop:
         "layer_set", "label_list", "raw_response",
     )
     FUNCTION  = "run"
-    CATEGORY  = "SAMhera"
+    CATEGORY      = "AVM"
 
     def run(self, image, api, focus_hint="", max_regions=8, padding=16,
             normalize_size=True, target_long_side=1008):
@@ -2318,28 +2318,28 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SAMheraAPIKey":          "SAMhera API Key",
-    "VLMImageTest":           "VLM Image Test (SAMhera)",
-    "VLMtoBBoxAndPoints":     "VLM -> BBox + Points (SAMhera)",
-    "VLMtoBBox":              "VLM -> BBox (SAMhera)",
-    "VLMtoPoints":            "VLM -> Points (SAMhera)",
-    "VLMtoMultiBBox":         "VLM -> Multi-BBox (SAMhera)",
-    "VLMBBoxPreview":         "VLM BBox Preview (SAMhera)",
-    "VLMDebugPreview":        "VLM Debug Preview (SAMhera)",
-    "SAMheraAddFramePrompt":  "Add Frame Prompt [SAMhera]",
-    "VLMFacePartsBBox":       "VLM -> Face Parts BBox [SAMhera]",
-    "VLMFacePrecisePoints":   "VLM -> Face Precise Points [SAMhera]",
-    "VLMFaceRegion":          "VLM Face Region [SAMhera]",
-    "SAMheraCropByBox":       "Crop by Box [SAMhera]",
-    "SAMheraPasteBackMask":   "Paste Back Mask [SAMhera]",
-    "SAMheraAutoLayer":                 "Auto Layer Detect [SAMhera]",
-    "SAMheraMultiFrameAutoLayer":       "Multi-Frame Auto Layer Detect [SAMhera]",
-    "SAMheraLayerPropagate":            "Layer Propagate [SAMhera]",
-    "SAMheraMultiFrameLayerPropagate":  "Multi-Frame Layer Propagate [SAMhera]",
-    "SAMheraReferenceMatch":  "Reference Match [SAMhera]",
-    "SAMheraLayerSelector":   "Layer Selector [SAMhera]",
-    "VLMPromptEditor":        "VLM Prompt Editor [SAMhera]",
-    "SAMheraAutoCrop":              "Auto Crop [SAMhera]",
-    "SAMheraAddFramePromptBundle":  "Add Frame Prompt Bundle [SAMhera]",
-    "SAMheraUnpackBundle":          "Unpack Bundle [SAMhera]",
+    "SAMheraAPIKey":          "AVM API Key",
+    "VLMImageTest":           "AVM VLM Test",
+    "VLMtoBBoxAndPoints":     "AVM VLM → BBox + Points",
+    "VLMtoBBox":              "AVM VLM → BBox",
+    "VLMtoPoints":            "AVM VLM → Points",
+    "VLMtoMultiBBox":         "AVM VLM → Multi BBox",
+    "VLMBBoxPreview":         "AVM BBox Preview",
+    "VLMDebugPreview":        "AVM Debug Preview",
+    "SAMheraAddFramePrompt":  "AVM Add Frame Prompt",
+    "VLMFacePartsBBox":       "AVM VLM → Face Parts BBox",
+    "VLMFacePrecisePoints":   "AVM VLM → Face Points",
+    "VLMFaceRegion":          "AVM Face Region",
+    "SAMheraCropByBox":       "AVM Crop by Box",
+    "SAMheraPasteBackMask":   "AVM Paste Back Mask",
+    "SAMheraAutoLayer":                 "AVM Auto Layer Detect",
+    "SAMheraMultiFrameAutoLayer":       "AVM Multi-Frame Layer Detect",
+    "SAMheraLayerPropagate":            "AVM Layer Propagate",
+    "SAMheraMultiFrameLayerPropagate":  "AVM Multi-Frame Layer Propagate",
+    "SAMheraReferenceMatch":  "AVM Reference Match",
+    "SAMheraLayerSelector":   "AVM Layer Selector",
+    "VLMPromptEditor":        "AVM Prompt Editor",
+    "SAMheraAutoCrop":              "AVM Auto Crop",
+    "SAMheraAddFramePromptBundle":  "AVM Frame Prompt Bundle",
+    "SAMheraUnpackBundle":          "AVM Unpack Bundle",
 }
