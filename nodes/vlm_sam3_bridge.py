@@ -54,10 +54,10 @@ def _resolve_api_key(ui_key: str) -> str:
 
 
 # =============================================================================
-# SAMheraAPIKey — set credentials once, connect api slot to all nodes
+# AVMAPIConfig — set credentials once, connect api slot to all nodes
 # =============================================================================
 
-class SAMheraAPIKey:
+class AVMAPIConfig:
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -72,7 +72,7 @@ class SAMheraAPIKey:
             }
         }
 
-    RETURN_TYPES  = ("SAMHERA_API",)
+    RETURN_TYPES  = ("AVM_API",)
     RETURN_NAMES  = ("api",)
     FUNCTION      = "run"
     CATEGORY      = "AVM"
@@ -129,7 +129,7 @@ class VLMImageTest:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "api":   ("SAMHERA_API",),
+                "api":   ("AVM_API",),
             }
         }
 
@@ -162,7 +162,7 @@ class VLMtoBBox:
         return {
             "required": {
                 "image":              ("IMAGE",),
-                "api":                ("SAMHERA_API",),
+                "api":                ("AVM_API",),
                 "target_description": ("STRING", {"default": "the main subject", "multiline": False}),
                 "is_positive":        ("BOOLEAN", {"default": True}),
             },
@@ -224,7 +224,7 @@ class VLMtoPoints:
         return {
             "required": {
                 "image":              ("IMAGE",),
-                "api":                ("SAMHERA_API",),
+                "api":                ("AVM_API",),
                 "target_description": ("STRING", {"default": "the main subject", "multiline": False}),
                 "num_pos_points":     ("INT", {"default": 6, "min": 1, "max": 12}),
                 "num_neg_points":     ("INT", {"default": 3, "min": 0, "max": 6}),
@@ -314,7 +314,7 @@ class VLMtoMultiBBox:
         return {
             "required": {
                 "image":              ("IMAGE",),
-                "api":                ("SAMHERA_API",),
+                "api":                ("AVM_API",),
                 "target_description": ("STRING", {"default": "all bags", "multiline": False}),
                 "max_objects":        ("INT", {"default": 3, "min": 1, "max": 5}),
             },
@@ -384,7 +384,7 @@ class VLMtoBBoxAndPoints:
         return {
             "required": {
                 "image":              ("IMAGE",),
-                "api":                ("SAMHERA_API",),
+                "api":                ("AVM_API",),
                 "target_description": ("STRING", {"default": "the main subject", "multiline": False}),
                 "num_pos_points":     ("INT", {"default": 6, "min": 1, "max": 12}),
                 "num_neg_points":     ("INT", {"default": 3, "min": 0, "max": 6}),
@@ -485,7 +485,7 @@ class VLMPromptEditor:
         return {
             "required": {
                 "image":              ("IMAGE",),
-                "api":                ("SAMHERA_API",),
+                "api":                ("AVM_API",),
                 "target_description": ("STRING", {"default": "the main subject", "multiline": False}),
                 "num_pos_points":     ("INT", {"default": 6, "min": 1, "max": 12}),
                 "num_neg_points":     ("INT", {"default": 3, "min": 0, "max": 6}),
@@ -697,10 +697,10 @@ class VLMDebugPreview:
 
 
 # =============================================================================
-# SAMheraCropByBox
+# AVMCropByBox
 # =============================================================================
 
-class SAMheraCropByBox:
+class AVMCropByBox:
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -767,7 +767,7 @@ class SAMheraCropByBox:
             "orig_w": W, "orig_h": H,
             "scale": scale, "resized_w": out_w, "resized_h": out_h,
         }
-        print(f"[SAMheraCropByBox] crop=[{x1},{y1},{x2},{y2}] {crop_w}x{crop_h}"
+        print(f"[AVMCropByBox] crop=[{x1},{y1},{x2},{y2}] {crop_w}x{crop_h}"
               f" → {out_w}x{out_h} (scale={scale:.3f})")
 
         # Save preview to temp with label bar
@@ -802,10 +802,10 @@ class SAMheraCropByBox:
 
 
 # =============================================================================
-# SAMheraPasteBackMask
+# AVMPasteBackMask
 # =============================================================================
 
-class SAMheraPasteBackMask:
+class AVMPasteBackMask:
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -851,15 +851,15 @@ class SAMheraPasteBackMask:
                                 padding=feather_px).squeeze(1)
             full = torch.clamp(full, 0.0, 1.0)
 
-        print(f"[SAMheraPasteBackMask] {N} masks -> {orig_w}x{orig_h}")
+        print(f"[AVMPasteBackMask] {N} masks -> {orig_w}x{orig_h}")
         return (full,)
 
 
 # =============================================================================
-# SAMheraAddFramePrompt
+# AVMAddFramePrompt
 # =============================================================================
 
-class SAMheraAddFramePrompt:
+class AVMAddFramePrompt:
 
     PROMPT_MODES = ["point", "box"]
 
@@ -893,7 +893,7 @@ class SAMheraAddFramePrompt:
         import importlib.util, os as _os
         _base = _os.path.normpath(_os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes", "video_state.py"))
         if not _os.path.exists(_base):
-            raise ImportError(f"[SAMheraAddFramePrompt] video_state.py not found at {_base}")
+            raise ImportError(f"[AVMAddFramePrompt] video_state.py not found at {_base}")
         _spec = importlib.util.spec_from_file_location("sam3_video_state", _base)
         _mod  = importlib.util.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
@@ -910,7 +910,7 @@ class SAMheraAddFramePrompt:
             if not all_points:
                 return (video_state,)
             video_state = video_state.with_prompt(VideoPrompt.create_point(frame_idx, obj_id, all_points, all_labels))
-            print(f"[SAMheraAddFramePrompt] {len(all_points)} points at frame {frame_idx}")
+            print(f"[AVMAddFramePrompt] {len(all_points)} points at frame {frame_idx}")
 
         elif prompt_mode == "box":
             if positive_boxes and positive_boxes.get("boxes"):
@@ -944,7 +944,7 @@ class VLMFacePartsBBox:
         return {
             "required": {
                 "image":      ("IMAGE",),
-                "api":        ("SAMHERA_API",),
+                "api":        ("AVM_API",),
                 "person_box": ("SAM3_BOXES_PROMPT",),
             },
             "optional": {
@@ -1065,7 +1065,7 @@ class VLMFacePrecisePoints:
         return {
             "required": {
                 "image":          ("IMAGE",),
-                "api":            ("SAMHERA_API",),
+                "api":            ("AVM_API",),
                 "face_target":    (cls.FACE_TARGETS, {"default": "face_skin"}),
                 "num_fg_points":  ("INT", {"default": 8, "min": 4, "max": 16}),
                 "num_bg_points":  ("INT", {"default": 4, "min": 0, "max": 8}),
@@ -1205,7 +1205,7 @@ class VLMFaceRegion:
 
     Typical workflow:
         Image → VLMFaceRegion → [cropped_image + crop_meta + points] → SAM3
-                                       └─ SAMheraPasteBackMask → full-size mask
+                                       └─ AVMPasteBackMask → full-size mask
 
     region examples:
         "face including open mouth and teeth"
@@ -1231,7 +1231,7 @@ class VLMFaceRegion:
         return {
             "required": {
                 "image":         ("IMAGE",),
-                "api":           ("SAMHERA_API",),
+                "api":           ("AVM_API",),
                 "region":        ("STRING", {
                     "default":   "face including open mouth and teeth",
                     "multiline": True,
@@ -1359,7 +1359,7 @@ class VLMFaceRegion:
 
 
 # =============================================================================
-# SAMheraAutoLayer — one Gemini call → up to 8 layer boxes + layer set
+# AVMAutoLayer — one Gemini call → up to 8 layer boxes + layer set
 # =============================================================================
 
 LAYER_PRESETS = {
@@ -1394,7 +1394,7 @@ LAYER_PRESETS = {
 }
 
 
-class SAMheraAutoLayer:
+class AVMAutoLayer:
 
     LAYER_PRESETS_LIST = ["auto", "portrait", "full_body", "product", "custom"]
 
@@ -1403,7 +1403,7 @@ class SAMheraAutoLayer:
         return {
             "required": {
                 "image":        ("IMAGE",),
-                "api":          ("SAMHERA_API",),
+                "api":          ("AVM_API",),
                 "layer_preset": (cls.LAYER_PRESETS_LIST, {"default": "portrait"}),
             },
             "optional": {
@@ -1466,7 +1466,7 @@ class SAMheraAutoLayer:
         )
 
         raw1 = _call_gemini(pil_img, discovery_prompt, api)
-        print(f"[SAMheraAutoLayer] Discovery: {raw1}")
+        print(f"[AVMAutoLayer] Discovery: {raw1}")
 
         try:
             data1 = _parse_json(raw1)
@@ -1474,7 +1474,7 @@ class SAMheraAutoLayer:
             if not discovered:
                 raise ValueError("empty layers list")
         except Exception as e:
-            print(f"[SAMheraAutoLayer] Discovery parse error: {e} — falling back to preset")
+            print(f"[AVMAutoLayer] Discovery parse error: {e} — falling back to preset")
             discovered = LAYER_PRESETS.get(layer_preset, LAYER_PRESETS["portrait"])
 
         # ── Call 2: Localization + Points ─────────────────────────────
@@ -1498,14 +1498,14 @@ class SAMheraAutoLayer:
         )
 
         raw2 = _call_gemini(pil_img, localize_prompt, api)
-        print(f"[SAMheraAutoLayer] Localize+Points: {raw2}")
+        print(f"[AVMAutoLayer] Localize+Points: {raw2}")
         raw = f"=== Discovery ===\n{raw1}\n\n=== Localize+Points ===\n{raw2}"
 
         try:
             data = _parse_json(raw2)
             layers = data.get("layers", [])[:8]
         except Exception as e:
-            print(f"[SAMheraAutoLayer] Localize+Points parse error: {e}"); layers = []
+            print(f"[AVMAutoLayer] Localize+Points parse error: {e}"); layers = []
 
         # ── Build outputs ─────────────────────────────────────────────
         empty_boxes  = {"boxes": [], "labels": []}
@@ -1540,15 +1540,15 @@ class SAMheraAutoLayer:
         layer_set  = {lbl: b["boxes"] for lbl, b in zip(labels, bundles) if lbl}
         label_list = "\n".join(f"{i+1}. {lb}" for i, lb in enumerate(labels) if lb)
 
-        print(f"[SAMheraAutoLayer] Detected {len(layers)} layers: {[l for l in labels if l]}")
+        print(f"[AVMAutoLayer] Detected {len(layers)} layers: {[l for l in labels if l]}")
         return (*bundles, *labels, layer_set, label_list, raw)
 
 
 # =============================================================================
-# SAMheraLayerPropagate — propagate every layer through all video frames
+# AVMLayerPropagate — propagate every layer through all video frames
 # =============================================================================
 
-class SAMheraLayerPropagate:
+class AVMLayerPropagate:
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -1578,7 +1578,7 @@ class SAMheraLayerPropagate:
         def _load(fname):
             path = _os.path.join(sam3_dir, fname)
             if not _os.path.exists(path):
-                raise ImportError(f"[SAMheraLayerPropagate] Not found: {path}")
+                raise ImportError(f"[AVMLayerPropagate] Not found: {path}")
             spec = importlib.util.spec_from_file_location(
                 f"_samhera_sam3_{fname.replace('.py', '')}", path
             )
@@ -1601,10 +1601,10 @@ class SAMheraLayerPropagate:
 
         for label, boxes_prompt in layer_set.items():
             if not boxes_prompt or not boxes_prompt.get("boxes"):
-                print(f"[SAMheraLayerPropagate] Skipping '{label}' — no boxes")
+                print(f"[AVMLayerPropagate] Skipping '{label}' — no boxes")
                 continue
 
-            print(f"[SAMheraLayerPropagate] Propagating layer: '{label}'")
+            print(f"[AVMLayerPropagate] Propagating layer: '{label}'")
             try:
                 video_state = create_video_state(video_frames)
                 cx, cy, bw, bh = boxes_prompt["boxes"][0]
@@ -1613,24 +1613,24 @@ class SAMheraLayerPropagate:
                 video_state = video_state.with_prompt(prompt)
                 result = propagator.propagate(sam3_model, video_state)
                 propagated[label] = result[0]  # SAM3_VIDEO_MASKS
-                print(f"[SAMheraLayerPropagate] '{label}' propagation complete")
+                print(f"[AVMLayerPropagate] '{label}' propagation complete")
             except Exception as e:
-                print(f"[SAMheraLayerPropagate] '{label}' failed: {e}")
+                print(f"[AVMLayerPropagate] '{label}' failed: {e}")
                 propagated[label] = None
 
-        print(f"[SAMheraLayerPropagate] Done. {len(propagated)} layers propagated.")
+        print(f"[AVMLayerPropagate] Done. {len(propagated)} layers propagated.")
         return (propagated,)
 
 
 # =============================================================================
-# SAMheraMultiFrameAutoLayer — run Auto Layer Detect on multiple keyframes at once
+# AVMMultiFrameAutoLayer — run Auto Layer Detect on multiple keyframes at once
 # =============================================================================
 
-class SAMheraMultiFrameAutoLayer:
+class AVMMultiFrameAutoLayer:
     """
-    Like SAMheraAutoLayer but accepts a batch of keyframe images with their frame indices.
+    Like AVMAutoLayer but accepts a batch of keyframe images with their frame indices.
     Outputs a SAMHERA_MULTI_FRAME_LAYER_SET — a list of per-frame detections — which can
-    be fed directly into SAMheraMultiFrameLayerPropagate for multi-anchor propagation.
+    be fed directly into AVMMultiFrameLayerPropagate for multi-anchor propagation.
     """
 
     LAYER_PRESETS_LIST = ["auto", "portrait", "full_body", "product", "custom"]
@@ -1644,7 +1644,7 @@ class SAMheraMultiFrameAutoLayer:
                     "default": "0",
                     "tooltip": "Comma-separated frame indices matching each image in the batch. E.g. '0,15,45'",
                 }),
-                "api":           ("SAMHERA_API",),
+                "api":           ("AVM_API",),
                 "layer_preset":  (cls.LAYER_PRESETS_LIST, {"default": "portrait"}),
             },
             "optional": {
@@ -1679,12 +1679,12 @@ class SAMheraMultiFrameAutoLayer:
 
         N = images.shape[0]
         if len(indices) != N:
-            print(f"[SAMheraMultiFrameAutoLayer] {len(indices)} indices for {N} images — adjusting.")
+            print(f"[AVMMultiFrameAutoLayer] {len(indices)} indices for {N} images — adjusting.")
             while len(indices) < N:
                 indices.append((indices[-1] + 1) if indices else 0)
             indices = indices[:N]
 
-        # Build guidance line (mirrors SAMheraAutoLayer)
+        # Build guidance line (mirrors AVMAutoLayer)
         if layer_preset == "auto":
             guidance_line = ""
         elif layer_preset == "custom":
@@ -1724,7 +1724,7 @@ class SAMheraMultiFrameAutoLayer:
             frame_idx = indices[i]
             pil_img = _tensor_to_pil(images[i:i+1])
             W, H = pil_img.size
-            print(f"[SAMheraMultiFrameAutoLayer] Frame {frame_idx} ({i+1}/{N}) — {W}x{H}")
+            print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx} ({i+1}/{N}) — {W}x{H}")
 
             # Call 1: Discovery
             discovery_prompt = (
@@ -1743,7 +1743,7 @@ class SAMheraMultiFrameAutoLayer:
                 if not discovered:
                     raise ValueError("empty layers list")
             except Exception as e:
-                print(f"[SAMheraMultiFrameAutoLayer] Frame {frame_idx} discovery error: {e} — using preset")
+                print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx} discovery error: {e} — using preset")
                 discovered = LAYER_PRESETS.get(layer_preset, LAYER_PRESETS["portrait"])
 
             # Call 2: Localization + Points
@@ -1771,7 +1771,7 @@ class SAMheraMultiFrameAutoLayer:
                 data = _parse_json(raw2)
                 layers = data.get("layers", [])[:8]
             except Exception as e:
-                print(f"[SAMheraMultiFrameAutoLayer] Frame {frame_idx} localize error: {e}")
+                print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx} localize error: {e}")
                 layers = []
 
             layer_set = {}
@@ -1790,21 +1790,21 @@ class SAMheraMultiFrameAutoLayer:
                 "layer_set": layer_set,
                 "bundles":   bundles,
             })
-            print(f"[SAMheraMultiFrameAutoLayer] Frame {frame_idx}: {list(bundles.keys())}")
+            print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx}: {list(bundles.keys())}")
 
         label_list = "\n".join(sorted(all_labels))
         raw_combined = "\n\n".join(all_raw)
-        print(f"[SAMheraMultiFrameAutoLayer] Done. {N} frames, {len(all_labels)} unique labels.")
+        print(f"[AVMMultiFrameAutoLayer] Done. {N} frames, {len(all_labels)} unique labels.")
         return (multi_frame_results, label_list, raw_combined)
 
 
 # =============================================================================
-# SAMheraMultiFrameLayerPropagate — propagate layers with multi-frame anchors
+# AVMMultiFrameLayerPropagate — propagate layers with multi-frame anchors
 # =============================================================================
 
-class SAMheraMultiFrameLayerPropagate:
+class AVMMultiFrameLayerPropagate:
     """
-    Like SAMheraLayerPropagate but uses a SAMHERA_MULTI_FRAME_LAYER_SET so each label
+    Like AVMLayerPropagate but uses a SAMHERA_MULTI_FRAME_LAYER_SET so each label
     gets box prompts at every keyframe it was detected, giving SAM3 multiple anchors.
     """
 
@@ -1831,7 +1831,7 @@ class SAMheraMultiFrameLayerPropagate:
         def _load(fname):
             path = _os.path.join(sam3_dir, fname)
             if not _os.path.exists(path):
-                raise ImportError(f"[SAMheraMultiFrameLayerPropagate] Not found: {path}")
+                raise ImportError(f"[AVMMultiFrameLayerPropagate] Not found: {path}")
             spec = importlib.util.spec_from_file_location(
                 f"_samhera_sam3_{fname.replace('.py', '')}", path
             )
@@ -1869,10 +1869,10 @@ class SAMheraMultiFrameLayerPropagate:
                 anchors.append((frame_idx, box_corners))
 
             if not anchors:
-                print(f"[SAMheraMultiFrameLayerPropagate] '{label}' — no boxes in any frame, skipping")
+                print(f"[AVMMultiFrameLayerPropagate] '{label}' — no boxes in any frame, skipping")
                 continue
 
-            print(f"[SAMheraMultiFrameLayerPropagate] '{label}' — {len(anchors)} anchor(s): frames {[a[0] for a in anchors]}")
+            print(f"[AVMMultiFrameLayerPropagate] '{label}' — {len(anchors)} anchor(s): frames {[a[0] for a in anchors]}")
             try:
                 video_state = create_video_state(video_frames)
                 for frame_idx, box_corners in anchors:
@@ -1880,20 +1880,20 @@ class SAMheraMultiFrameLayerPropagate:
                     video_state = video_state.with_prompt(prompt)
                 result = propagator.propagate(sam3_model, video_state)
                 propagated[label] = result[0]
-                print(f"[SAMheraMultiFrameLayerPropagate] '{label}' done")
+                print(f"[AVMMultiFrameLayerPropagate] '{label}' done")
             except Exception as e:
-                print(f"[SAMheraMultiFrameLayerPropagate] '{label}' failed: {e}")
+                print(f"[AVMMultiFrameLayerPropagate] '{label}' failed: {e}")
                 propagated[label] = None
 
-        print(f"[SAMheraMultiFrameLayerPropagate] Done. {len(propagated)} layers propagated.")
+        print(f"[AVMMultiFrameLayerPropagate] Done. {len(propagated)} layers propagated.")
         return (propagated,)
 
 
 # =============================================================================
-# SAMheraReferenceMatch — find a subject from a reference image in a target frame
+# VLMReferenceMatch — find a subject from a reference image in a target frame
 # =============================================================================
 
-class SAMheraReferenceMatch:
+class VLMReferenceMatch:
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -1901,7 +1901,7 @@ class SAMheraReferenceMatch:
             "required": {
                 "reference_image": ("IMAGE",),
                 "target_frame":    ("IMAGE",),
-                "api":             ("SAMHERA_API",),
+                "api":             ("AVM_API",),
             },
             "optional": {
                 "subject_description": ("STRING", {
@@ -1953,29 +1953,29 @@ class SAMheraReferenceMatch:
             ]
         )
         raw = response.text
-        print(f"[SAMheraReferenceMatch] Raw: {raw}")
+        print(f"[VLMReferenceMatch] Raw: {raw}")
 
         empty = {"boxes": [], "labels": []}
         try:
             data = _parse_json(raw)
             bbox = data.get("bbox")
             if not bbox:
-                print(f"[SAMheraReferenceMatch] Subject not found in target frame.")
+                print(f"[VLMReferenceMatch] Subject not found in target frame.")
                 return (empty, raw)
             x1, y1, x2, y2 = bbox
             x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
             cx = (x1n + x2n) / 2; cy = (y1n + y2n) / 2
             bw = x2n - x1n;       bh = y2n - y1n
             boxes_prompt = {"boxes": [[cx, cy, bw, bh]], "labels": [True]}
-            print(f"[SAMheraReferenceMatch] box (cx,cy,w,h): [{cx:.3f},{cy:.3f},{bw:.3f},{bh:.3f}]")
+            print(f"[VLMReferenceMatch] box (cx,cy,w,h): [{cx:.3f},{cy:.3f},{bw:.3f},{bh:.3f}]")
         except Exception as e:
-            print(f"[SAMheraReferenceMatch] Parse error: {e}"); boxes_prompt = empty
+            print(f"[VLMReferenceMatch] Parse error: {e}"); boxes_prompt = empty
 
         return (boxes_prompt, raw)
 
 
 # =============================================================================
-# SAMheraLayerSelector — extract a single layer from a SAMHERA_LAYER_SET
+# AVMLayerSelector — extract a single layer from a SAMHERA_LAYER_SET
 # =============================================================================
 
 def _extract_mask_from_video_masks(video_masks):
@@ -2007,7 +2007,7 @@ def _extract_mask_from_video_masks(video_masks):
     return torch.stack(frame_tensors, dim=0)  # [F, H, W]
 
 
-class SAMheraLayerSelector:
+class AVMLayerSelector:
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -2044,36 +2044,36 @@ class SAMheraLayerSelector:
                     break
 
         if value is None:
-            print(f"[SAMheraLayerSelector] '{layer_name}' not found. Available: {available_str}")
+            print(f"[AVMLayerSelector] '{layer_name}' not found. Available: {available_str}")
             return (empty_mask, empty_boxes, available_str)
 
-        print(f"[SAMheraLayerSelector] Matched '{matched}' for query '{layer_name}'")
+        print(f"[AVMLayerSelector] Matched '{matched}' for query '{layer_name}'")
 
-        # SAM3_BOXES_PROMPT: dict with "boxes" key  (from SAMheraAutoLayer)
+        # SAM3_BOXES_PROMPT: dict with "boxes" key  (from AVMAutoLayer)
         if isinstance(value, dict) and "boxes" in value:
-            print(f"[SAMheraLayerSelector] Type: SAM3_BOXES_PROMPT — returning boxes, empty mask")
+            print(f"[AVMLayerSelector] Type: SAM3_BOXES_PROMPT — returning boxes, empty mask")
             return (empty_mask, value, available_str)
 
-        # SAM3_VIDEO_MASKS: dict with int frame-index keys (from SAMheraLayerPropagate)
+        # SAM3_VIDEO_MASKS: dict with int frame-index keys (from AVMLayerPropagate)
         if isinstance(value, dict) and any(isinstance(k, int) for k in value):
-            print(f"[SAMheraLayerSelector] Type: SAM3_VIDEO_MASKS — extracting mask tensor")
+            print(f"[AVMLayerSelector] Type: SAM3_VIDEO_MASKS — extracting mask tensor")
             try:
                 mask = _extract_mask_from_video_masks(value)
-                print(f"[SAMheraLayerSelector] Mask shape: {mask.shape}")
+                print(f"[AVMLayerSelector] Mask shape: {mask.shape}")
                 return (mask, empty_boxes, available_str)
             except Exception as e:
-                print(f"[SAMheraLayerSelector] Extraction failed: {e}")
+                print(f"[AVMLayerSelector] Extraction failed: {e}")
                 return (empty_mask, empty_boxes, available_str)
 
-        print(f"[SAMheraLayerSelector] '{matched}' has no usable data (None or unknown type)")
+        print(f"[AVMLayerSelector] '{matched}' has no usable data (None or unknown type)")
         return (empty_mask, empty_boxes, available_str)
 
 
 # =============================================================================
-# SAMheraAddFramePromptBundle — add box + points to video_state in one node
+# AVMAddFramePromptBundle — add box + points to video_state in one node
 # =============================================================================
 
-class SAMheraAddFramePromptBundle:
+class AVMAddFramePromptBundle:
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -2098,7 +2098,7 @@ class SAMheraAddFramePromptBundle:
             _os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes", "video_state.py")
         )
         if not _os.path.exists(_base):
-            raise ImportError(f"[SAMheraAddFramePromptBundle] video_state.py not found at {_base}")
+            raise ImportError(f"[AVMAddFramePromptBundle] video_state.py not found at {_base}")
         _spec = importlib.util.spec_from_file_location("sam3_video_state", _base)
         _mod  = importlib.util.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
@@ -2130,17 +2130,17 @@ class SAMheraAddFramePromptBundle:
                 VideoPrompt.create_point(frame_idx, obj_id, all_points, all_labels)
             )
 
-        print(f"[SAMheraAddFramePromptBundle] frame={frame_idx} obj={obj_id} "
+        print(f"[AVMAddFramePromptBundle] frame={frame_idx} obj={obj_id} "
               f"box={'yes' if boxes_prompt and boxes_prompt.get('boxes') else 'no'} "
               f"pts={len(all_points)}")
         return (video_state,)
 
 
 # =============================================================================
-# SAMheraUnpackBundle — split SAM3_BOX_AND_POINT into SAM3 native types
+# AVMUnpackBundle — split SAM3_BOX_AND_POINT into SAM3 native types
 # =============================================================================
 
-class SAMheraUnpackBundle:
+class AVMUnpackBundle:
     """Splits a SAM3_BOX_AND_POINT bundle into the three types that
     SAM3VideoSegmentation already accepts as separate inputs."""
 
@@ -2162,10 +2162,10 @@ class SAMheraUnpackBundle:
 
 
 # =============================================================================
-# SAMheraAutoCrop — presence/discovery call + localization call + crop
+# VLMAutoCrop — presence/discovery call + localization call + crop
 # =============================================================================
 
-class SAMheraAutoCrop:
+class VLMAutoCrop:
     """
     Two-call Gemini workflow that produces cropped images without a preset:
       Call 1 (Presence / Discovery): Gemini freely identifies what regions exist.
@@ -2178,7 +2178,7 @@ class SAMheraAutoCrop:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "api":   ("SAMHERA_API",),
+                "api":   ("AVM_API",),
             },
             "optional": {
                 "focus_hint": ("STRING", {
@@ -2234,7 +2234,7 @@ class SAMheraAutoCrop:
         )
 
         raw1 = _call_gemini(pil_img, discovery_prompt, api)
-        print(f"[SAMheraAutoCrop] Discovery: {raw1}")
+        print(f"[VLMAutoCrop] Discovery: {raw1}")
 
         try:
             data1 = _parse_json(raw1)
@@ -2245,7 +2245,7 @@ class SAMheraAutoCrop:
             if not discovered:
                 raise ValueError("empty regions list")
         except Exception as e:
-            print(f"[SAMheraAutoCrop] Discovery parse error: {e}")
+            print(f"[VLMAutoCrop] Discovery parse error: {e}")
             empty = ""
             return (*([image] * 8), *([empty] * 8), {}, "", raw1)
 
@@ -2263,14 +2263,14 @@ class SAMheraAutoCrop:
         )
 
         raw2 = _call_gemini(pil_img, localize_prompt, api)
-        print(f"[SAMheraAutoCrop] Localization: {raw2}")
+        print(f"[VLMAutoCrop] Localization: {raw2}")
         raw = f"=== Discovery ===\n{raw1}\n\n=== Localization ===\n{raw2}"
 
         try:
             data2 = _parse_json(raw2)
             regions = data2.get("regions", [])[:8]
         except Exception as e:
-            print(f"[SAMheraAutoCrop] Localization parse error: {e}")
+            print(f"[VLMAutoCrop] Localization parse error: {e}")
             regions = []
 
         # ── Crop each region ──────────────────────────────────────────────
@@ -2310,14 +2310,14 @@ class SAMheraAutoCrop:
                     "labels": [True],
                 }
             except Exception as e:
-                print(f"[SAMheraAutoCrop] Crop error for '{entry.get('label', '?')}': {e}")
+                print(f"[VLMAutoCrop] Crop error for '{entry.get('label', '?')}': {e}")
 
         while len(crops) < 8:
             crops.append(image)
             labels.append("")
 
         label_list = "\n".join(f"{i+1}. {lb}" for i, lb in enumerate(labels) if lb)
-        print(f"[SAMheraAutoCrop] Cropped {len(regions)} regions: {[l for l in labels if l]}")
+        print(f"[VLMAutoCrop] Cropped {len(regions)} regions: {[l for l in labels if l]}")
         return (*crops[:8], *labels[:8], layer_set, label_list, raw)
 
 
@@ -2326,7 +2326,7 @@ class SAMheraAutoCrop:
 # =============================================================================
 
 NODE_CLASS_MAPPINGS = {
-    "SAMheraAPIKey":          SAMheraAPIKey,
+    "AVMAPIConfig":          AVMAPIConfig,
     "VLMImageTest":           VLMImageTest,
     "VLMtoBBoxAndPoints":     VLMtoBBoxAndPoints,
     "VLMtoBBox":              VLMtoBBox,
@@ -2334,26 +2334,26 @@ NODE_CLASS_MAPPINGS = {
     "VLMtoMultiBBox":         VLMtoMultiBBox,
     "VLMBBoxPreview":         VLMBBoxPreview,
     "VLMDebugPreview":        VLMDebugPreview,
-    "SAMheraAddFramePrompt":  SAMheraAddFramePrompt,
+    "AVMAddFramePrompt":  AVMAddFramePrompt,
     "VLMFacePartsBBox":       VLMFacePartsBBox,
     "VLMFacePrecisePoints":   VLMFacePrecisePoints,
     "VLMFaceRegion":          VLMFaceRegion,
-    "SAMheraCropByBox":       SAMheraCropByBox,
-    "SAMheraPasteBackMask":   SAMheraPasteBackMask,
-    "SAMheraAutoLayer":                 SAMheraAutoLayer,
-    "SAMheraMultiFrameAutoLayer":       SAMheraMultiFrameAutoLayer,
-    "SAMheraLayerPropagate":            SAMheraLayerPropagate,
-    "SAMheraMultiFrameLayerPropagate":  SAMheraMultiFrameLayerPropagate,
-    "SAMheraReferenceMatch":  SAMheraReferenceMatch,
-    "SAMheraLayerSelector":   SAMheraLayerSelector,
+    "AVMCropByBox":       AVMCropByBox,
+    "AVMPasteBackMask":   AVMPasteBackMask,
+    "AVMAutoLayer":                 AVMAutoLayer,
+    "AVMMultiFrameAutoLayer":       AVMMultiFrameAutoLayer,
+    "AVMLayerPropagate":            AVMLayerPropagate,
+    "AVMMultiFrameLayerPropagate":  AVMMultiFrameLayerPropagate,
+    "VLMReferenceMatch":  VLMReferenceMatch,
+    "AVMLayerSelector":   AVMLayerSelector,
     "VLMPromptEditor":        VLMPromptEditor,
-    "SAMheraAutoCrop":              SAMheraAutoCrop,
-    "SAMheraAddFramePromptBundle":  SAMheraAddFramePromptBundle,
-    "SAMheraUnpackBundle":          SAMheraUnpackBundle,
+    "VLMAutoCrop":              VLMAutoCrop,
+    "AVMAddFramePromptBundle":  AVMAddFramePromptBundle,
+    "AVMUnpackBundle":          AVMUnpackBundle,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SAMheraAPIKey":          "AVM API Config",
+    "AVMAPIConfig":          "AVM API Config",
     "VLMImageTest":           "AVM VLM Test",
     "VLMtoBBoxAndPoints":     "AVM VLM → BBox + Points",
     "VLMtoBBox":              "AVM VLM → BBox",
@@ -2361,20 +2361,20 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VLMtoMultiBBox":         "AVM VLM → Multi BBox",
     "VLMBBoxPreview":         "AVM BBox Preview",
     "VLMDebugPreview":        "AVM Debug Preview",
-    "SAMheraAddFramePrompt":  "AVM Add Frame Prompt",
+    "AVMAddFramePrompt":  "AVM Add Frame Prompt",
     "VLMFacePartsBBox":       "AVM VLM → Face Parts BBox",
     "VLMFacePrecisePoints":   "AVM VLM → Face Points",
     "VLMFaceRegion":          "AVM Face Region",
-    "SAMheraCropByBox":       "AVM Crop by Box",
-    "SAMheraPasteBackMask":   "AVM Paste Back Mask",
-    "SAMheraAutoLayer":                 "AVM Auto Layer Detect",
-    "SAMheraMultiFrameAutoLayer":       "AVM Multi-Frame Layer Detect",
-    "SAMheraLayerPropagate":            "AVM Layer Propagate",
-    "SAMheraMultiFrameLayerPropagate":  "AVM Multi-Frame Layer Propagate",
-    "SAMheraReferenceMatch":  "AVM Reference Match",
-    "SAMheraLayerSelector":   "AVM Layer Selector",
+    "AVMCropByBox":       "AVM Crop by Box",
+    "AVMPasteBackMask":   "AVM Paste Back Mask",
+    "AVMAutoLayer":                 "AVM Auto Layer Detect",
+    "AVMMultiFrameAutoLayer":       "AVM Multi-Frame Layer Detect",
+    "AVMLayerPropagate":            "AVM Layer Propagate",
+    "AVMMultiFrameLayerPropagate":  "AVM Multi-Frame Layer Propagate",
+    "VLMReferenceMatch":  "AVM Reference Match",
+    "AVMLayerSelector":   "AVM Layer Selector",
     "VLMPromptEditor":        "AVM Prompt Editor",
-    "SAMheraAutoCrop":              "AVM Auto Crop",
-    "SAMheraAddFramePromptBundle":  "AVM Frame Prompt Bundle",
-    "SAMheraUnpackBundle":          "AVM Unpack Bundle",
+    "VLMAutoCrop":              "AVM Auto Crop",
+    "AVMAddFramePromptBundle":  "AVM Frame Prompt Bundle",
+    "AVMUnpackBundle":          "AVM Unpack Bundle",
 }
