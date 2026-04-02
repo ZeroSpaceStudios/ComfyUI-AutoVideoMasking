@@ -33,6 +33,8 @@ RENAMES = {
 # The custom wire type was also renamed
 TYPE_RENAMES = {
     "SAMHERA_API": "AVM_API",
+    "SAMHERA_LAYER_SET": "AVM_LAYER_SET",
+    "SAMHERA_MULTI_FRAME_LAYER_SET": "AVM_MULTI_FRAME_LAYER_SET",
 }
 
 

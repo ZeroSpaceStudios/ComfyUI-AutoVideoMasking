@@ -4,7 +4,7 @@ Calls Gemini to auto-generate bbox or point prompts,
 then outputs native SAM3_BOX_PROMPT / SAM3_POINTS_PROMPT types that wire
 directly into SAM3Segmentation or SAM3Grounding.
 
-Author: SAMhera
+Author: ZeroSpace Studios
 
 Coordinate conventions (must match segmentation.py):
   SAM3_BOX_PROMPT   : {"box": [cx, cy, w, h],  "label": bool}   - normalized [0,1]
@@ -771,7 +771,7 @@ class AVMCropByBox:
               f" → {out_w}x{out_h} (scale={scale:.3f})")
 
         # Save preview to temp with label bar
-        fname = f"samhera_crop_{uuid.uuid4().hex[:8]}.png"
+        fname = f"avm_crop_{uuid.uuid4().hex[:8]}.png"
         temp_dir = folder_paths.get_temp_directory()
         os.makedirs(temp_dir, exist_ok=True)
         fpath = os.path.join(temp_dir, fname)
@@ -1424,7 +1424,7 @@ class AVMAutoLayer:
         "SAM3_BOX_AND_POINT", "SAM3_BOX_AND_POINT", "SAM3_BOX_AND_POINT", "SAM3_BOX_AND_POINT",
         "STRING", "STRING", "STRING", "STRING",
         "STRING", "STRING", "STRING", "STRING",
-        "SAMHERA_LAYER_SET", "STRING", "STRING",
+        "AVM_LAYER_SET", "STRING", "STRING",
     )
     RETURN_NAMES = (
         "layer_1", "layer_2", "layer_3", "layer_4",
@@ -1555,7 +1555,7 @@ class AVMLayerPropagate:
         return {
             "required": {
                 "video_frames": ("IMAGE",),
-                "layer_set":    ("SAMHERA_LAYER_SET",),
+                "layer_set":    ("AVM_LAYER_SET",),
                 "sam3_model":   ("SAM3_MODEL",),
                 "frame_idx":    ("INT", {
                     "default": 0, "min": 0,
@@ -1564,7 +1564,7 @@ class AVMLayerPropagate:
             }
         }
 
-    RETURN_TYPES = ("SAMHERA_LAYER_SET",)
+    RETURN_TYPES = ("AVM_LAYER_SET",)
     RETURN_NAMES = ("propagated_layer_set",)
     FUNCTION = "run"
     CATEGORY      = "AVM"
@@ -1580,7 +1580,7 @@ class AVMLayerPropagate:
             if not _os.path.exists(path):
                 raise ImportError(f"[AVMLayerPropagate] Not found: {path}")
             spec = importlib.util.spec_from_file_location(
-                f"_samhera_sam3_{fname.replace('.py', '')}", path
+                f"_avm_sam3_{fname.replace('.py', '')}", path
             )
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
@@ -1629,7 +1629,7 @@ class AVMLayerPropagate:
 class AVMMultiFrameAutoLayer:
     """
     Like AVMAutoLayer but accepts a batch of keyframe images with their frame indices.
-    Outputs a SAMHERA_MULTI_FRAME_LAYER_SET — a list of per-frame detections — which can
+    Outputs a AVM_MULTI_FRAME_LAYER_SET — a list of per-frame detections — which can
     be fed directly into AVMMultiFrameLayerPropagate for multi-anchor propagation.
     """
 
@@ -1660,7 +1660,7 @@ class AVMMultiFrameAutoLayer:
             }
         }
 
-    RETURN_TYPES = ("SAMHERA_MULTI_FRAME_LAYER_SET", "STRING", "STRING")
+    RETURN_TYPES = ("AVM_MULTI_FRAME_LAYER_SET", "STRING", "STRING")
     RETURN_NAMES = ("multi_frame_layer_set", "label_list", "raw_response")
     FUNCTION = "run"
     CATEGORY      = "AVM"
@@ -1804,7 +1804,7 @@ class AVMMultiFrameAutoLayer:
 
 class AVMMultiFrameLayerPropagate:
     """
-    Like AVMLayerPropagate but uses a SAMHERA_MULTI_FRAME_LAYER_SET so each label
+    Like AVMLayerPropagate but uses a AVM_MULTI_FRAME_LAYER_SET so each label
     gets box prompts at every keyframe it was detected, giving SAM3 multiple anchors.
     """
 
@@ -1813,12 +1813,12 @@ class AVMMultiFrameLayerPropagate:
         return {
             "required": {
                 "video_frames":          ("IMAGE",),
-                "multi_frame_layer_set": ("SAMHERA_MULTI_FRAME_LAYER_SET",),
+                "multi_frame_layer_set": ("AVM_MULTI_FRAME_LAYER_SET",),
                 "sam3_model":            ("SAM3_MODEL",),
             }
         }
 
-    RETURN_TYPES = ("SAMHERA_LAYER_SET",)
+    RETURN_TYPES = ("AVM_LAYER_SET",)
     RETURN_NAMES = ("propagated_layer_set",)
     FUNCTION = "run"
     CATEGORY      = "AVM"
@@ -1833,7 +1833,7 @@ class AVMMultiFrameLayerPropagate:
             if not _os.path.exists(path):
                 raise ImportError(f"[AVMMultiFrameLayerPropagate] Not found: {path}")
             spec = importlib.util.spec_from_file_location(
-                f"_samhera_sam3_{fname.replace('.py', '')}", path
+                f"_avm_sam3_{fname.replace('.py', '')}", path
             )
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
@@ -1975,7 +1975,7 @@ class VLMReferenceMatch:
 
 
 # =============================================================================
-# AVMLayerSelector — extract a single layer from a SAMHERA_LAYER_SET
+# AVMLayerSelector — extract a single layer from a AVM_LAYER_SET
 # =============================================================================
 
 def _extract_mask_from_video_masks(video_masks):
@@ -2013,7 +2013,7 @@ class AVMLayerSelector:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "layer_set":  ("SAMHERA_LAYER_SET",),
+                "layer_set":  ("AVM_LAYER_SET",),
                 "layer_name": ("STRING", {"default": "face", "multiline": False,
                                "tooltip": "Exact label or case-insensitive substring match."}),
             }
@@ -2202,7 +2202,7 @@ class VLMAutoCrop:
         "IMAGE", "IMAGE", "IMAGE", "IMAGE",
         "STRING", "STRING", "STRING", "STRING",
         "STRING", "STRING", "STRING", "STRING",
-        "SAMHERA_LAYER_SET", "STRING", "STRING",
+        "AVM_LAYER_SET", "STRING", "STRING",
     )
     RETURN_NAMES = (
         "crop_1", "crop_2", "crop_3", "crop_4",
