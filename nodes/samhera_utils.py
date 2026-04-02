@@ -1,18 +1,18 @@
 """
-SAMhera Utilities
-Non-SAM helper nodes for the SAMhera package.
+AVM Utilities
+Non-SAM helper nodes for the AVM package.
 
-Author: SAMhera
+Author: Hera Kang
 """
 
 
 # =============================================================================
-# SAMheraReload — hot-reload vlm_sam3_bridge without restarting ComfyUI
+# AVMReload — hot-reload vlm_sam3_bridge without restarting ComfyUI
 # =============================================================================
 
-class SAMheraReload:
+class AVMReload:
     """
-    Reloads SAMhera node code instantly — no ComfyUI restart needed.
+    Reloads AVM node code instantly — no ComfyUI restart needed.
     Save changes to vlm_sam3_bridge.py, then run this node.
     Re-add nodes to canvas after reload to use updated code.
     """
@@ -59,7 +59,7 @@ class SAMheraReload:
         if failed:
             status += f"\nFailed: {', '.join(failed)}"
 
-        print(f"[SAMhera] Reload: {status}")
+        print(f"[AVM] Reload: {status}")
         return (status,)
 
 
@@ -68,9 +68,9 @@ class SAMheraReload:
 # =============================================================================
 
 NODE_CLASS_MAPPINGS = {
-    "SAMheraReload": SAMheraReload,
+    "AVMReload": AVMReload,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SAMheraReload": "AVM Reload",
+    "AVMReload": "AVM Reload",
 }

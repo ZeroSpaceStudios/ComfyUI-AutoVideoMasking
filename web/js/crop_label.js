@@ -3,7 +3,7 @@ import { app } from "../../scripts/app.js";
 app.registerExtension({
     name: "AVM.CropLabel",
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== "SAMheraCropByBox") return;
+        if (nodeData.name !== "AVMCropByBox") return;
 
         const origOnExecuted = nodeType.prototype.onExecuted;
         nodeType.prototype.onExecuted = function (output) {
