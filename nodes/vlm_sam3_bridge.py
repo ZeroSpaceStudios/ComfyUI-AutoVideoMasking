@@ -1326,6 +1326,89 @@ class VLMFaceRegion:
 
 
 # =============================================================================
+# AVMAutoLayer / AVMMultiFrameAutoLayer shared helpers
+# =============================================================================
+
+def _build_guidance_line(layer_preset, custom_prompt=""):
+    if layer_preset == "auto":
+        return ""
+    if layer_preset == "custom":
+        guidance = custom_prompt.strip() or "any distinct visual elements"
+        return f"Focus on: {guidance}"
+    preset_guidance = {
+        "portrait":  "face skin, hair, eyes, mouth/lips, neck, clothing, accessories, background",
+        "full_body": "face/head, hair, upper clothing, lower clothing, shoes, hands/arms, accessories, background",
+        "product":   "main product, packaging, labels/text, shadow, props, background",
+    }
+    return f"This is a {layer_preset} image. Focus on: {preset_guidance.get(layer_preset, 'distinct visual regions')}"
+
+
+def _run_discovery_and_localize(pil_img, api, layer_preset, guidance_line, W, H,
+                                num_pos_points, num_neg_points, log_prefix="AVM"):
+    """Run the two-stage Gemini pipeline (discovery → localize+points).
+    Returns (layers, raw1, raw2); callers format their own raw string.
+    """
+    discovery_prompt = (
+        (f"{guidance_line}\n\n" if guidance_line else "")
+        + "Look at the image and list every distinct visual layer or region you can clearly see. "
+        "Give each a SHORT, SPECIFIC label (e.g. 'black turtleneck', 'curly brown hair', 'gold hoop earrings'). "
+        "Max 8 layers. Skip anything not clearly visible.\n\n"
+        "Return ONLY valid JSON (no markdown):\n"
+        '{"layers": ["label1", "label2", ...]}'
+    )
+    raw1 = _call_gemini(pil_img, discovery_prompt, api)
+    print(f"[{log_prefix}] Discovery: {raw1}")
+
+    try:
+        data1 = _parse_json(raw1)
+        discovered = [l.strip() for l in data1.get("layers", []) if isinstance(l, str) and l.strip()]
+        if not discovered:
+            raise ValueError("empty layers list")
+    except Exception as e:
+        print(f"[{log_prefix}] Discovery parse error: {e} — falling back to preset")
+        discovered = LAYER_PRESETS.get(layer_preset, LAYER_PRESETS["portrait"])
+
+    labels_json = json.dumps(discovered, indent=2)
+    localize_prompt = (
+        f"Image: {W}x{H} pixels. All coordinates are pixel values in this image.\n\n"
+        f"For each region in the list below, return:\n"
+        f"  • A tight bounding box (x1,y1,x2,y2, pixel coords, x1<x2, y1<y2)\n"
+        f"  • {num_pos_points} positive points INSIDE the region "
+        f"(spread across, deep inside, never on edges)\n"
+        f"  • {num_neg_points} negative points OUTSIDE the region "
+        f"(just beyond its boundary)\n\n"
+        f"Regions:\n{labels_json}\n\n"
+        "Skip any region not clearly visible. Confidence 0.0-1.0, omit below 0.3.\n\n"
+        "Return ONLY valid JSON (no markdown):\n"
+        '{"layers": [\n'
+        '  {"label": "<exact label>", "bbox": [x1,y1,x2,y2], "confidence": 0.9,\n'
+        '   "positive": [[x,y],...], "negative": [[x,y],...]},\n'
+        "  ...\n]}"
+    )
+    raw2 = _call_gemini(pil_img, localize_prompt, api)
+    print(f"[{log_prefix}] Localize+Points: {raw2}")
+
+    try:
+        data = _parse_json(raw2)
+        layers = data.get("layers", [])[:8]
+    except Exception as e:
+        print(f"[{log_prefix}] Localize parse error: {e}")
+        layers = []
+
+    return layers, raw1, raw2
+
+
+def _build_layer_bundle(entry, W, H, num_pos_points, num_neg_points):
+    x1, y1, x2, y2 = entry["bbox"]
+    x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
+    cx = (x1n + x2n) / 2; cy = (y1n + y2n) / 2
+    boxes = {"boxes": [[cx, cy, x2n - x1n, y2n - y1n]], "labels": [True]}
+    pos   = normalize_points(entry.get("positive", [])[:num_pos_points], 1)
+    neg   = normalize_points(entry.get("negative", [])[:num_neg_points], 0)
+    return {"boxes": boxes, "positive": pos, "negative": neg}
+
+
+# =============================================================================
 # AVMAutoLayer — one Gemini call → up to 8 layer boxes + layer set
 # =============================================================================
 
@@ -1408,94 +1491,24 @@ class AVMAutoLayer:
         pil_img = _tensor_to_pil(image)
         W, H = pil_img.size
 
-        # ── Call 1: Discovery ────────────────────────────────────────
-        # Let Gemini freely name what it actually sees, guided by preset category.
-        if layer_preset == "auto":
-            guidance_line = ""
-        elif layer_preset == "custom":
-            guidance = custom_prompt.strip() or "any distinct visual elements"
-            guidance_line = f"Focus on: {guidance}"
-        else:
-            preset_guidance = {
-                "portrait":  "face skin, hair, eyes, mouth/lips, neck, clothing, accessories, background",
-                "full_body": "face/head, hair, upper clothing, lower clothing, shoes, hands/arms, accessories, background",
-                "product":   "main product, packaging, labels/text, shadow, props, background",
-            }
-            guidance_line = f"This is a {layer_preset} image. Focus on: {preset_guidance.get(layer_preset, 'distinct visual regions')}"
-
-        discovery_prompt = (
-            (f"{guidance_line}\n\n" if guidance_line else "")
-            + "Look at the image and list every distinct visual layer or region you can clearly see. "
-            "Give each a SHORT, SPECIFIC label (e.g. 'black turtleneck', 'curly brown hair', 'gold hoop earrings'). "
-            "Max 8 layers. Skip anything not clearly visible.\n\n"
-            "Return ONLY valid JSON (no markdown):\n"
-            '{"layers": ["label1", "label2", ...]}'
+        guidance_line = _build_guidance_line(layer_preset, custom_prompt)
+        layers, raw1, raw2 = _run_discovery_and_localize(
+            pil_img, api, layer_preset, guidance_line, W, H,
+            num_pos_points, num_neg_points, log_prefix="AVMAutoLayer",
         )
-
-        raw1 = _call_gemini(pil_img, discovery_prompt, api)
-        print(f"[AVMAutoLayer] Discovery: {raw1}")
-
-        try:
-            data1 = _parse_json(raw1)
-            discovered = [l.strip() for l in data1.get("layers", []) if isinstance(l, str) and l.strip()]
-            if not discovered:
-                raise ValueError("empty layers list")
-        except Exception as e:
-            print(f"[AVMAutoLayer] Discovery parse error: {e} — falling back to preset")
-            discovered = LAYER_PRESETS.get(layer_preset, LAYER_PRESETS["portrait"])
-
-        # ── Call 2: Localization + Points ─────────────────────────────
-        # Return bbox AND points for every label in one shot, all in original coords.
-        labels_json = json.dumps(discovered, indent=2)
-        localize_prompt = (
-            f"Image: {W}x{H} pixels. All coordinates are pixel values in this image.\n\n"
-            f"For each region in the list below, return:\n"
-            f"  • A tight bounding box (x1,y1,x2,y2, pixel coords, x1<x2, y1<y2)\n"
-            f"  • {num_pos_points} positive points INSIDE the region "
-            f"(spread across, deep inside, never on edges)\n"
-            f"  • {num_neg_points} negative points OUTSIDE the region "
-            f"(just beyond its boundary)\n\n"
-            f"Regions:\n{labels_json}\n\n"
-            "Skip any region not clearly visible. Confidence 0.0-1.0, omit below 0.3.\n\n"
-            "Return ONLY valid JSON (no markdown):\n"
-            '{"layers": [\n'
-            '  {"label": "<exact label>", "bbox": [x1,y1,x2,y2], "confidence": 0.9,\n'
-            '   "positive": [[x,y],...], "negative": [[x,y],...]},\n'
-            "  ...\n]}"
-        )
-
-        raw2 = _call_gemini(pil_img, localize_prompt, api)
-        print(f"[AVMAutoLayer] Localize+Points: {raw2}")
         raw = f"=== Discovery ===\n{raw1}\n\n=== Localize+Points ===\n{raw2}"
 
-        try:
-            data = _parse_json(raw2)
-            layers = data.get("layers", [])[:8]
-        except Exception as e:
-            print(f"[AVMAutoLayer] Localize+Points parse error: {e}"); layers = []
-
-        # ── Build outputs ─────────────────────────────────────────────
         empty_boxes  = {"boxes": [], "labels": []}
         empty_pts    = {"points": [], "labels": []}
         empty_bundle = {"boxes": empty_boxes, "positive": empty_pts, "negative": empty_pts}
 
-        def _to_bundle(entry):
-            x1, y1, x2, y2 = entry["bbox"]
-            x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
-            cx = (x1n + x2n) / 2; cy = (y1n + y2n) / 2
-            boxes = {"boxes": [[cx, cy, x2n - x1n, y2n - y1n]], "labels": [True]}
-            pos   = normalize_points(entry.get("positive", [])[:num_pos_points], 1)
-            neg   = normalize_points(entry.get("negative", [])[:num_neg_points], 0)
-            return {"boxes": boxes, "positive": pos, "negative": neg}
-
-        bundles = [_to_bundle(l) for l in layers]
+        bundles = [_build_layer_bundle(l, W, H, num_pos_points, num_neg_points) for l in layers]
         labels  = [l.get("label", f"layer_{i+1}") for i, l in enumerate(layers)]
 
         while len(bundles) < 8:
             bundles.append(empty_bundle)
             labels.append("")
 
-        # layer_set keeps SAM3_BOXES_PROMPT for LayerPropagate / LayerSelector
         layer_set  = {lbl: b["boxes"] for lbl, b in zip(labels, bundles) if lbl}
         label_list = "\n".join(f"{i+1}. {lb}" for i, lb in enumerate(labels) if lb)
 
@@ -1643,28 +1656,7 @@ class AVMMultiFrameAutoLayer:
                 indices.append((indices[-1] + 1) if indices else 0)
             indices = indices[:N]
 
-        # Build guidance line (mirrors AVMAutoLayer)
-        if layer_preset == "auto":
-            guidance_line = ""
-        elif layer_preset == "custom":
-            guidance = custom_prompt.strip() or "any distinct visual elements"
-            guidance_line = f"Focus on: {guidance}"
-        else:
-            preset_guidance = {
-                "portrait":  "face skin, hair, eyes, mouth/lips, neck, clothing, accessories, background",
-                "full_body": "face/head, hair, upper clothing, lower clothing, shoes, hands/arms, accessories, background",
-                "product":   "main product, packaging, labels/text, shadow, props, background",
-            }
-            guidance_line = f"This is a {layer_preset} image. Focus on: {preset_guidance.get(layer_preset, 'distinct visual regions')}"
-
-        def _to_bundle(entry, W, H):
-            x1, y1, x2, y2 = entry["bbox"]
-            x1n, y1n, x2n, y2n = _maybe_normalize_corners(x1, y1, x2, y2, W, H)
-            cx = (x1n + x2n) / 2; cy = (y1n + y2n) / 2
-            boxes = {"boxes": [[cx, cy, x2n - x1n, y2n - y1n]], "labels": [True]}
-            pos   = normalize_points(entry.get("positive", [])[:num_pos_points], 1)
-            neg   = normalize_points(entry.get("negative", [])[:num_neg_points], 0)
-            return {"boxes": boxes, "positive": pos, "negative": neg}
+        guidance_line = _build_guidance_line(layer_preset, custom_prompt)
 
         multi_frame_results = []
         all_raw = []
@@ -1676,53 +1668,11 @@ class AVMMultiFrameAutoLayer:
             W, H = pil_img.size
             print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx} ({i+1}/{N}) — {W}x{H}")
 
-            # Call 1: Discovery
-            discovery_prompt = (
-                (f"{guidance_line}\n\n" if guidance_line else "")
-                + "Look at the image and list every distinct visual layer or region you can clearly see. "
-                "Give each a SHORT, SPECIFIC label (e.g. 'black turtleneck', 'curly brown hair'). "
-                "Max 8 layers. Skip anything not clearly visible.\n\n"
-                "Return ONLY valid JSON (no markdown):\n"
-                '{"layers": ["label1", "label2", ...]}'
+            layers, raw1, raw2 = _run_discovery_and_localize(
+                pil_img, api, layer_preset, guidance_line, W, H,
+                num_pos_points, num_neg_points, log_prefix="AVMMultiFrameAutoLayer",
             )
-            raw1 = _call_gemini(pil_img, discovery_prompt, api)
-
-            try:
-                data1 = _parse_json(raw1)
-                discovered = [l.strip() for l in data1.get("layers", []) if isinstance(l, str) and l.strip()]
-                if not discovered:
-                    raise ValueError("empty layers list")
-            except Exception as e:
-                print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx} discovery error: {e} — using preset")
-                discovered = LAYER_PRESETS.get(layer_preset, LAYER_PRESETS["portrait"])
-
-            # Call 2: Localization + Points
-            labels_json = json.dumps(discovered, indent=2)
-            localize_prompt = (
-                f"Image: {W}x{H} pixels. All coordinates are pixel values in this image.\n\n"
-                f"For each region in the list below, return:\n"
-                f"  • A tight bounding box (x1,y1,x2,y2, pixel coords, x1<x2, y1<y2)\n"
-                f"  • {num_pos_points} positive points INSIDE the region "
-                f"(spread across, deep inside, never on edges)\n"
-                f"  • {num_neg_points} negative points OUTSIDE the region "
-                f"(just beyond its boundary)\n\n"
-                f"Regions:\n{labels_json}\n\n"
-                "Skip any region not clearly visible. Confidence 0.0-1.0, omit below 0.3.\n\n"
-                "Return ONLY valid JSON (no markdown):\n"
-                '{"layers": [\n'
-                '  {"label": "<exact label>", "bbox": [x1,y1,x2,y2], "confidence": 0.9,\n'
-                '   "positive": [[x,y],...], "negative": [[x,y],...]},\n'
-                "  ...\n]}"
-            )
-            raw2 = _call_gemini(pil_img, localize_prompt, api)
             all_raw.append(f"=== Frame {frame_idx} ===\nDiscovery: {raw1}\nLocalize: {raw2}")
-
-            try:
-                data = _parse_json(raw2)
-                layers = data.get("layers", [])[:8]
-            except Exception as e:
-                print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx} localize error: {e}")
-                layers = []
 
             layer_set = {}
             bundles = {}
@@ -1730,7 +1680,7 @@ class AVMMultiFrameAutoLayer:
                 label = entry.get("label", "").strip()
                 if not label:
                     continue
-                bundle = _to_bundle(entry, W, H)
+                bundle = _build_layer_bundle(entry, W, H, num_pos_points, num_neg_points)
                 bundles[label] = bundle
                 layer_set[label] = bundle["boxes"]
                 all_labels.add(label)
