@@ -138,6 +138,75 @@ def _call_gemini(pil_img, prompt, api):
     return response.text
 
 
+def _find_sam3_nodes_dir() -> str:
+    """Locate the ComfyUI-SAM3/nodes directory.
+
+    Search order:
+      1. AVM_SAM3_DIR environment variable (explicit override)
+      2. sys.modules — ComfyUI may have already imported SAM3 modules
+      3. ComfyUI folder_paths custom_nodes base
+      4. Hardcoded relative path (../../ComfyUI-SAM3/nodes)
+
+    Raises ImportError with actionable guidance if nothing is found.
+    """
+    import os, sys
+
+    env = os.environ.get("AVM_SAM3_DIR", "").strip()
+    if env:
+        path = os.path.normpath(env)
+        if os.path.isdir(path):
+            return path
+        raise ImportError(
+            f"[AVM] AVM_SAM3_DIR is set to '{env}' but that directory does not exist."
+        )
+
+    for mod in sys.modules.values():
+        f = getattr(mod, "__file__", None)
+        if f and "ComfyUI-SAM3" in f:
+            candidate = os.path.normpath(os.path.dirname(f))
+            if os.path.isfile(os.path.join(candidate, "video_state.py")):
+                return candidate
+
+    try:
+        import folder_paths
+        for base in folder_paths.get_folder_paths("custom_nodes"):
+            candidate = os.path.normpath(os.path.join(base, "ComfyUI-SAM3", "nodes"))
+            if os.path.isdir(candidate):
+                return candidate
+    except Exception:
+        pass
+
+    candidate = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes")
+    )
+    if os.path.isdir(candidate):
+        return candidate
+
+    raise ImportError(
+        "[AVM] ComfyUI-SAM3 not found. Install it into your custom_nodes directory, "
+        "or set the AVM_SAM3_DIR environment variable to its 'nodes' folder path. "
+        "Expected to find: video_state.py, sam3_video_nodes.py"
+    )
+
+
+def _load_sam3_modules():
+    """Load video_state and sam3_video_nodes from ComfyUI-SAM3. Returns (vs_mod, vn_mod)."""
+    import importlib.util, os as _os
+
+    sam3_dir = _find_sam3_nodes_dir()
+
+    def _load(fname):
+        path = _os.path.join(sam3_dir, fname)
+        if not _os.path.exists(path):
+            raise ImportError(f"[AVM] {fname} not found in SAM3 nodes dir: {sam3_dir}")
+        spec = importlib.util.spec_from_file_location(f"_avm_sam3_{fname[:-3]}", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    return _load("video_state.py"), _load("sam3_video_nodes.py")
+
+
 # =============================================================================
 # VLMImageTest — verify Gemini is receiving the image correctly
 # =============================================================================
@@ -882,9 +951,7 @@ class AVMAddFramePrompt:
                          positive_boxes=None, negative_boxes=None):
 
         import importlib.util, os as _os
-        _base = _os.path.normpath(_os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes", "video_state.py"))
-        if not _os.path.exists(_base):
-            raise ImportError(f"[AVMAddFramePrompt] video_state.py not found at {_base}")
+        _base = _os.path.join(_find_sam3_nodes_dir(), "video_state.py")
         _spec = importlib.util.spec_from_file_location("sam3_video_state", _base)
         _mod  = importlib.util.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
@@ -1541,29 +1608,8 @@ class AVMLayerPropagate:
     FUNCTION = "run"
     CATEGORY      = "AVM"
 
-    def _load_sam3_modules(self):
-        import importlib.util, os as _os
-        sam3_dir = _os.path.normpath(
-            _os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes")
-        )
-
-        def _load(fname):
-            path = _os.path.join(sam3_dir, fname)
-            if not _os.path.exists(path):
-                raise ImportError(f"[AVMLayerPropagate] Not found: {path}")
-            spec = importlib.util.spec_from_file_location(
-                f"_avm_sam3_{fname.replace('.py', '')}", path
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-
-        vs_mod = _load("video_state.py")
-        vn_mod = _load("sam3_video_nodes.py")
-        return vs_mod, vn_mod
-
     def run(self, video_frames, layer_set, sam3_model, frame_idx):
-        vs_mod, vn_mod = self._load_sam3_modules()
+        vs_mod, vn_mod = _load_sam3_modules()
         create_video_state = vs_mod.create_video_state
         VideoPrompt = vs_mod.VideoPrompt
         SAM3Propagate = vn_mod.SAM3Propagate
@@ -1723,27 +1769,8 @@ class AVMMultiFrameLayerPropagate:
     FUNCTION = "run"
     CATEGORY      = "AVM"
 
-    def _load_sam3_modules(self):
-        import importlib.util, os as _os
-        sam3_dir = _os.path.normpath(
-            _os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes")
-        )
-        def _load(fname):
-            path = _os.path.join(sam3_dir, fname)
-            if not _os.path.exists(path):
-                raise ImportError(f"[AVMMultiFrameLayerPropagate] Not found: {path}")
-            spec = importlib.util.spec_from_file_location(
-                f"_avm_sam3_{fname.replace('.py', '')}", path
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-        vs_mod = _load("video_state.py")
-        vn_mod = _load("sam3_video_nodes.py")
-        return vs_mod, vn_mod
-
     def run(self, video_frames, multi_frame_layer_set, sam3_model):
-        vs_mod, vn_mod = self._load_sam3_modules()
+        vs_mod, vn_mod = _load_sam3_modules()
         create_video_state = vs_mod.create_video_state
         VideoPrompt       = vs_mod.VideoPrompt
         SAM3Propagate     = vn_mod.SAM3Propagate
@@ -1994,11 +2021,7 @@ class AVMAddFramePromptBundle:
 
     def run(self, video_state, box_and_point, frame_idx, obj_id):
         import importlib.util, os as _os
-        _base = _os.path.normpath(
-            _os.path.join(_os.path.dirname(__file__), "..", "..", "ComfyUI-SAM3", "nodes", "video_state.py")
-        )
-        if not _os.path.exists(_base):
-            raise ImportError(f"[AVMAddFramePromptBundle] video_state.py not found at {_base}")
+        _base = _os.path.join(_find_sam3_nodes_dir(), "video_state.py")
         _spec = importlib.util.spec_from_file_location("sam3_video_state", _base)
         _mod  = importlib.util.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
