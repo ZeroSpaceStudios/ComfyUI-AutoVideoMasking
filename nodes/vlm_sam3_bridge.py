@@ -1667,6 +1667,8 @@ class AVMMultiFrameAutoLayer:
                     "tooltip": "Positive points per layer."}),
                 "num_neg_points": ("INT", {"default": 2, "min": 0, "max": 6,
                     "tooltip": "Negative points per layer."}),
+                "max_concurrent": ("INT", {"default": 8, "min": 1, "max": 16,
+                    "tooltip": "Max parallel Gemini requests. Keep ≤ 25 to respect Gemini's RPM limit."}),
             }
         }
 
@@ -1676,7 +1678,7 @@ class AVMMultiFrameAutoLayer:
     CATEGORY      = "AVM"
 
     def run(self, images, frame_indices, api, layer_preset, custom_prompt="",
-            num_pos_points=4, num_neg_points=2):
+            num_pos_points=4, num_neg_points=2, max_concurrent=8):
 
         # Parse frame indices
         raw_parts = [x.strip() for x in frame_indices.split(",")]
@@ -1696,21 +1698,20 @@ class AVMMultiFrameAutoLayer:
 
         guidance_line = _build_guidance_line(layer_preset, custom_prompt)
 
-        multi_frame_results = []
-        all_raw = []
-        all_labels = set()
-
-        for i in range(N):
+        def _detect_frame(i):
             frame_idx = indices[i]
             pil_img = _tensor_to_pil(images[i:i+1])
             W, H = pil_img.size
             print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx} ({i+1}/{N}) — {W}x{H}")
 
-            layers, raw1, raw2 = _run_discovery_and_localize(
-                pil_img, api, layer_preset, guidance_line, W, H,
-                num_pos_points, num_neg_points, log_prefix="AVMMultiFrameAutoLayer",
-            )
-            all_raw.append(f"=== Frame {frame_idx} ===\nDiscovery: {raw1}\nLocalize: {raw2}")
+            try:
+                layers, raw1, raw2 = _run_discovery_and_localize(
+                    pil_img, api, layer_preset, guidance_line, W, H,
+                    num_pos_points, num_neg_points, log_prefix="AVMMultiFrameAutoLayer",
+                )
+            except Exception as e:
+                print(f"[AVM ERROR] AVMMultiFrameAutoLayer frame {frame_idx} failed: {e}")
+                return frame_idx, {}, {}, f"=== Frame {frame_idx} ===\nERROR: {e}"
 
             layer_set = {}
             bundles = {}
@@ -1721,14 +1722,26 @@ class AVMMultiFrameAutoLayer:
                 bundle = _build_layer_bundle(entry, W, H, num_pos_points, num_neg_points)
                 bundles[label] = bundle
                 layer_set[label] = bundle["boxes"]
-                all_labels.add(label)
 
+            print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx}: {list(bundles.keys())}")
+            return frame_idx, layer_set, bundles, f"=== Frame {frame_idx} ===\nDiscovery: {raw1}\nLocalize: {raw2}"
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+            frame_results = list(executor.map(_detect_frame, range(N)))
+
+        multi_frame_results = []
+        all_raw = []
+        all_labels = set()
+
+        for frame_idx, layer_set, bundles, raw_entry in frame_results:
+            all_raw.append(raw_entry)
+            all_labels.update(bundles.keys())
             multi_frame_results.append({
                 "frame_idx": frame_idx,
                 "layer_set": layer_set,
                 "bundles":   bundles,
             })
-            print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx}: {list(bundles.keys())}")
 
         label_list = "\n".join(sorted(all_labels))
         raw_combined = "\n\n".join(all_raw)
