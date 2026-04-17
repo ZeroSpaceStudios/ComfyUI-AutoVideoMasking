@@ -29,37 +29,44 @@ from .prompts import (
     autocrop_discovery_prompt, autocrop_localize_prompt,
 )
 
-AVAILABLE_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
+GEMINI_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]
+OPENROUTER_MODELS = [
+    "google/gemini-3.1-pro-preview",
+    "google/gemini-3-flash-preview",
+    "google/gemini-3.1-flash-lite-preview",
+]
+AVAILABLE_MODELS = GEMINI_MODELS + [f"openrouter:{m}" for m in OPENROUTER_MODELS]
 DEFAULT_MODEL = AVAILABLE_MODELS[0]
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Path to .env file in the package root (one level up from nodes/)
 _ENV_FILE = os.path.join(os.path.dirname(__file__), "..", ".env")
 
 
-def _resolve_api_key(ui_key: str) -> str:
-    """Tiered API key lookup: env var → .env file → UI input."""
-    # 1. System environment variable
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
+def _resolve_api_key(ui_key: str, provider: str = "gemini_direct") -> str:
+    """Tiered API key lookup: env var → .env file → UI input. Provider-aware."""
+    env_var = "OPENROUTER_API_KEY" if provider == "openrouter" else "GEMINI_API_KEY"
+    label = "OpenRouter" if provider == "openrouter" else "Gemini"
+
+    key = os.environ.get(env_var, "").strip()
     if key:
-        print("[AVM] API key loaded from environment variable.")
+        print(f"[AVM] {label} API key loaded from environment variable.")
         return key
-    # 2. .env file
     env_path = os.path.normpath(_ENV_FILE)
     if os.path.isfile(env_path):
         with open(env_path) as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("GEMINI_API_KEY="):
+                if line.startswith(f"{env_var}="):
                     key = line.split("=", 1)[1].strip().strip('"').strip("'")
                     if key:
-                        print("[AVM] API key loaded from .env file.")
+                        print(f"[AVM] {label} API key loaded from .env file.")
                         return key
-    # 3. UI input
     if ui_key.strip():
-        print("[AVM] API key loaded from node UI input.")
+        print(f"[AVM] {label} API key loaded from node UI input.")
         return ui_key.strip()
     raise ValueError(
-        "[AVM] No API key found. Set GEMINI_API_KEY env var, add it to .env, or enter it in the node."
+        f"[AVM] No API key found. Set {env_var} env var, add it to .env, or enter it in the node."
     )
 
 
@@ -74,11 +81,11 @@ class AVMAPIConfig:
         return {
             "required": {
                 "model_name": (AVAILABLE_MODELS, {"default": DEFAULT_MODEL,
-                               "tooltip": "Gemini model to use for VLM inference"}),
+                               "tooltip": "Gemini direct or openrouter:<slug> for VLM inference"}),
             },
             "optional": {
                 "api_key": ("STRING", {"default": "", "multiline": False,
-                            "tooltip": "Leave blank to use GEMINI_API_KEY env var or .env file"}),
+                            "tooltip": "Leave blank to use GEMINI_API_KEY / OPENROUTER_API_KEY env var or .env file"}),
             }
         }
 
@@ -88,8 +95,19 @@ class AVMAPIConfig:
     CATEGORY      = "AVM"
 
     def run(self, model_name, api_key=""):
-        resolved_key = _resolve_api_key(api_key)
-        return ({"api_key": resolved_key, "model_name": model_name},)
+        if model_name.startswith("openrouter:"):
+            provider = "openrouter"
+            actual_model = model_name.split(":", 1)[1]
+        else:
+            provider = "gemini_direct"
+            actual_model = model_name
+        resolved_key = _resolve_api_key(api_key, provider)
+        return ({
+            "api_key": resolved_key,
+            "model_name": actual_model,
+            "provider": provider,
+            "base_url": OPENROUTER_BASE_URL,
+        },)
 
 
 # -- helpers ------------------------------------------------------------------
@@ -129,23 +147,81 @@ def normalize_points_crop_to_full(pts_raw, label_val, crop_w, crop_h, crop_x1, c
         lbls.append(label_val)
     return {"points": result, "labels": lbls}
 
-def _call_gemini(pil_img, prompt, api):
+def _call_gemini_direct(pil_imgs, prompt, api):
     try:
         from google import genai
         from google.genai import types
     except ImportError:
         raise ImportError("google-genai not installed. Run: pip install google-genai")
     client = genai.Client(api_key=api["api_key"])
-    buf = io.BytesIO()
-    pil_img.save(buf, format="PNG")
-    response = client.models.generate_content(
-        model=api["model_name"],
-        contents=[
-            types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"),
-            types.Part.from_text(text=prompt),
-        ]
-    )
+    parts = []
+    for img in pil_imgs:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"))
+    parts.append(types.Part.from_text(text=prompt))
+    response = client.models.generate_content(model=api["model_name"], contents=parts)
     return response.text
+
+
+def _call_openrouter(pil_imgs, prompt, api):
+    import base64
+    try:
+        import requests
+    except ImportError:
+        raise ImportError("requests not installed. Run: pip install requests")
+
+    content = [{"type": "text", "text": prompt}]
+    for img in pil_imgs:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        content.append({"type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+    payload = {
+        "model": api["model_name"],
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0,
+    }
+    headers = {
+        "Authorization": f"Bearer {api['api_key']}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/neonvoid/ComfyUI-AutoVideoMasking",
+        "X-Title": "ComfyUI-AutoVideoMasking",
+    }
+    url = api.get("base_url", OPENROUTER_BASE_URL).rstrip("/") + "/chat/completions"
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=180)
+    except requests.Timeout as e:
+        raise RuntimeError("[AVM/OpenRouter] Request timed out after 180s") from e
+    except requests.RequestException as e:
+        raise RuntimeError(f"[AVM/OpenRouter] Network error: {e}") from e
+
+    if not r.ok:
+        raise RuntimeError(f"[AVM/OpenRouter] HTTP {r.status_code}: {r.text[:500]}")
+
+    try:
+        data = r.json()
+        text = data["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        raise RuntimeError(f"[AVM/OpenRouter] Malformed response ({e}): {r.text[:500]}") from e
+
+    if not isinstance(text, str):
+        raise RuntimeError(f"[AVM/OpenRouter] Expected string content, got {type(text).__name__}: {str(text)[:300]}")
+
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    return text
+
+
+def _call_gemini(pil_img_or_list, prompt, api):
+    """Provider-dispatching VLM call. Accepts a single PIL image or list of PIL images."""
+    pil_imgs = pil_img_or_list if isinstance(pil_img_or_list, list) else [pil_img_or_list]
+    provider = api.get("provider", "gemini_direct")
+    if provider == "openrouter":
+        return _call_openrouter(pil_imgs, prompt, api)
+    return _call_gemini_direct(pil_imgs, prompt, api)
 
 
 def _find_sam3_nodes_dir() -> str:
@@ -1755,32 +1831,12 @@ class VLMReferenceMatch:
     CATEGORY      = "AVM"
 
     def run(self, reference_image, target_frame, api, subject_description="the person"):
-        import io as _io
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError:
-            raise ImportError("google-genai not installed. Run: pip install google-genai")
-
         ref_pil = _tensor_to_pil(reference_image)
         tgt_pil = _tensor_to_pil(target_frame)
         W, H = tgt_pil.size
 
         prompt = reference_match_prompt(subject_description, W, H)
-
-        client = genai.Client(api_key=api["api_key"])
-        buf_ref = _io.BytesIO(); ref_pil.save(buf_ref, format="PNG")
-        buf_tgt = _io.BytesIO(); tgt_pil.save(buf_tgt, format="PNG")
-
-        response = client.models.generate_content(
-            model=api["model_name"],
-            contents=[
-                types.Part.from_bytes(data=buf_ref.getvalue(), mime_type="image/png"),
-                types.Part.from_bytes(data=buf_tgt.getvalue(), mime_type="image/png"),
-                types.Part.from_text(text=prompt),
-            ]
-        )
-        raw = response.text
+        raw = _call_gemini([ref_pil, tgt_pil], prompt, api)
         print(f"[VLMReferenceMatch] Raw: {raw}")
 
         empty = {"boxes": [], "labels": []}
