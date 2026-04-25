@@ -185,9 +185,11 @@ def face_region_stage2_prompt(cW, cH, region, face_rules, num_fg_points, num_bg_
 def layer_discovery_prompt(guidance_line):
     return (
         (f"{guidance_line}\n\n" if guidance_line else "")
-        + "Look at the image and list every distinct visual layer or region you can clearly see. "
-        "Give each a SHORT, SPECIFIC label (e.g. 'black turtleneck', 'curly brown hair', 'gold hoop earrings'). "
-        "Max 8 layers. Skip anything not clearly visible.\n\n"
+        + "Look at the image and identify the main NON-OVERLAPPING visual regions. "
+        "Group related parts into broad semantic categories — for example: hair, face, upper body, lower body, background, held item. "
+        "Each region must be spatially distinct (no overlaps). "
+        "Use SHORT labels (e.g. 'hair', 'face', 'black t-shirt', 'blue background'). "
+        "Output only the regions that are clearly visible. Typically 3–6 regions, never more than 8.\n\n"
         "Return ONLY valid JSON (no markdown):\n"
         '{"layers": ["label1", "label2", ...]}'
     )
