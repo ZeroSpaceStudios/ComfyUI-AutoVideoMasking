@@ -1964,7 +1964,7 @@ class AVMLayerPreviewComposite:
             (label, val) for label, val in layer_set.items()
             if val is not None
             and isinstance(val, dict)
-            and any(isinstance(k, int) for k in val)
+            and len(val) > 0
         ][:8]
 
         label_lines = []
@@ -2049,7 +2049,7 @@ class AVMLayerPreviewGrid:
             (label, val) for label, val in layer_set.items()
             if val is not None
             and isinstance(val, dict)
-            and any(isinstance(k, int) for k in val)
+            and len(val) > 0
         ][:8]
 
         empty_video = torch.zeros(F_count, H, W, 3)
@@ -2160,7 +2160,7 @@ class AVMMaskCombine:
                 print(f"[AVMMaskCombine] '{key}' has no data")
                 continue
 
-            if not (isinstance(value, dict) and any(isinstance(k, int) for k in value)):
+            if not (isinstance(value, dict) and len(value) > 0):
                 print(f"[AVMMaskCombine] '{key}' is not a propagated mask — run LayerPropagate first")
                 continue
 
@@ -2342,8 +2342,8 @@ class AVMLayerSelector:
             print(f"[AVMLayerSelector] Type: SAM3_BOXES_PROMPT — returning boxes, empty mask")
             return (empty_mask, value, available_str)
 
-        # SAM3_VIDEO_MASKS: dict with int frame-index keys (from AVMLayerPropagate)
-        if isinstance(value, dict) and any(isinstance(k, int) for k in value):
+        # SAM3_VIDEO_MASKS: dict with int or string frame-index keys (from AVMLayerPropagate)
+        if isinstance(value, dict) and len(value) > 0:
             print(f"[AVMLayerSelector] Type: SAM3_VIDEO_MASKS — extracting mask tensor")
             try:
                 mask = _extract_mask_from_video_masks(value)
