@@ -1701,8 +1701,14 @@ class AVMLayerPropagate:
             print(f"[AVMLayerPropagate] Propagating layer: '{label}'")
             try:
                 video_state = create_video_state(video_frames)
+                _F, H, W, _C = video_frames.shape
                 cx, cy, bw, bh = boxes_prompt["boxes"][0]
-                box_corners = [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]
+                box_corners = [
+                    (cx - bw / 2) * W,
+                    (cy - bh / 2) * H,
+                    (cx + bw / 2) * W,
+                    (cy + bh / 2) * H,
+                ]
                 prompt = VideoPrompt.create_box(frame_idx, 1, box_corners, is_positive=True)
                 video_state = video_state.with_prompt(prompt)
                 result = SAM3Propagate.execute(sam3_model, video_state.to_dict())
@@ -1880,8 +1886,14 @@ class AVMMultiFrameLayerPropagate:
                 if not boxes_prompt or not boxes_prompt.get("boxes"):
                     continue
                 frame_idx = frame_data["frame_idx"]
+                _F, H, W, _C = video_frames.shape
                 cx, cy, bw, bh = boxes_prompt["boxes"][0]
-                box_corners = [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2]
+                box_corners = [
+                    (cx - bw / 2) * W,
+                    (cy - bh / 2) * H,
+                    (cx + bw / 2) * W,
+                    (cy + bh / 2) * H,
+                ]
                 anchors.append((frame_idx, box_corners))
 
             if not anchors:
