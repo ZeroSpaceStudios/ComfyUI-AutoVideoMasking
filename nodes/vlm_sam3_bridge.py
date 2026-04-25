@@ -1655,7 +1655,7 @@ class AVMLayerPropagate:
             "required": {
                 "video_frames": ("IMAGE",),
                 "layer_set":    ("AVM_LAYER_SET",),
-                "sam3_model":   ("SAM3_MODEL",),
+                "sam3_model":   ("SAM3_MODEL_CONFIG",),
                 "frame_idx":    ("INT", {
                     "default": 0, "min": 0,
                     "tooltip": "Frame index the layer boxes were detected on.",
@@ -1833,7 +1833,7 @@ class AVMMultiFrameLayerPropagate:
             "required": {
                 "video_frames":          ("IMAGE",),
                 "multi_frame_layer_set": ("AVM_MULTI_FRAME_LAYER_SET",),
-                "sam3_model":            ("SAM3_MODEL",),
+                "sam3_model":            ("SAM3_MODEL_CONFIG",),
             }
         }
 
