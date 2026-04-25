@@ -1709,8 +1709,20 @@ class AVMLayerPropagate:
                     (cx + bw / 2) * W,
                     (cy + bh / 2) * H,
                 ]
-                prompt = VideoPrompt.create_box(frame_idx, 1, box_corners, is_positive=True)
-                video_state = video_state.with_prompt(prompt)
+                video_state = video_state.with_prompt(
+                    VideoPrompt.create_box(frame_idx, 1, box_corners, is_positive=True)
+                )
+                # Add positive + negative point prompts from Gemini localization
+                pos = boxes_prompt.get("positive", {})
+                neg = boxes_prompt.get("negative", {})
+                pos_pts = [[x * W, y * H] for x, y in pos.get("points", [])]
+                neg_pts = [[x * W, y * H] for x, y in neg.get("points", [])]
+                if pos_pts or neg_pts:
+                    all_pts = pos_pts + neg_pts
+                    all_lbls = [1] * len(pos_pts) + [0] * len(neg_pts)
+                    video_state = video_state.with_prompt(
+                        VideoPrompt.create_point(frame_idx, 1, all_pts, all_lbls)
+                    )
                 result = SAM3Propagate.execute(sam3_model, video_state.to_dict())
                 propagated[label] = result[0]  # SAM3_VIDEO_MASKS (string-keyed dict)
                 print(f"[AVMLayerPropagate] '{label}' propagation complete")
@@ -1880,13 +1892,13 @@ class AVMMultiFrameLayerPropagate:
 
         for label in all_labels:
             # Gather box prompts for this label at every keyframe it appears
-            anchors = []
+            anchors = []  # list of (frame_idx, box_corners, pos_pts, neg_pts)
+            _F, H, W, _C = video_frames.shape
             for frame_data in multi_frame_layer_set:
                 boxes_prompt = frame_data["layer_set"].get(label)
                 if not boxes_prompt or not boxes_prompt.get("boxes"):
                     continue
                 frame_idx = frame_data["frame_idx"]
-                _F, H, W, _C = video_frames.shape
                 cx, cy, bw, bh = boxes_prompt["boxes"][0]
                 box_corners = [
                     (cx - bw / 2) * W,
@@ -1894,7 +1906,11 @@ class AVMMultiFrameLayerPropagate:
                     (cx + bw / 2) * W,
                     (cy + bh / 2) * H,
                 ]
-                anchors.append((frame_idx, box_corners))
+                pos = boxes_prompt.get("positive", {})
+                neg = boxes_prompt.get("negative", {})
+                pos_pts = [[x * W, y * H] for x, y in pos.get("points", [])]
+                neg_pts = [[x * W, y * H] for x, y in neg.get("points", [])]
+                anchors.append((frame_idx, box_corners, pos_pts, neg_pts))
 
             if not anchors:
                 print(f"[AVMMultiFrameLayerPropagate] '{label}' — no boxes in any frame, skipping")
@@ -1903,9 +1919,16 @@ class AVMMultiFrameLayerPropagate:
             print(f"[AVMMultiFrameLayerPropagate] '{label}' — {len(anchors)} anchor(s): frames {[a[0] for a in anchors]}")
             try:
                 video_state = create_video_state(video_frames)
-                for frame_idx, box_corners in anchors:
-                    prompt = VideoPrompt.create_box(frame_idx, 1, box_corners, is_positive=True)
-                    video_state = video_state.with_prompt(prompt)
+                for frame_idx, box_corners, pos_pts, neg_pts in anchors:
+                    video_state = video_state.with_prompt(
+                        VideoPrompt.create_box(frame_idx, 1, box_corners, is_positive=True)
+                    )
+                    if pos_pts or neg_pts:
+                        all_pts = pos_pts + neg_pts
+                        all_lbls = [1] * len(pos_pts) + [0] * len(neg_pts)
+                        video_state = video_state.with_prompt(
+                            VideoPrompt.create_point(frame_idx, 1, all_pts, all_lbls)
+                        )
                 result = SAM3Propagate.execute(sam3_model, video_state.to_dict())
                 propagated[label] = result[0]  # SAM3_VIDEO_MASKS (string-keyed dict)
                 print(f"[AVMMultiFrameLayerPropagate] '{label}' done")
