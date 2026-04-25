@@ -50,7 +50,7 @@
         { "name": "SAM3_MODEL_CONFIG", "type": "SAM3_MODEL_CONFIG", "links": [4], "slot_index": 0 }
       ],
       "properties": { "Node name for S&R": "LoadSAM3Model" },
-      "widgets_values": ["sam2.1_hiera_large.pt", "cuda"]
+      "widgets_values": ["sam3.safetensors", "cuda"]
     },
     {
       "id": 4,
