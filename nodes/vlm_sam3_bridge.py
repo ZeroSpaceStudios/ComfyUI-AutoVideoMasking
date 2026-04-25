@@ -1558,24 +1558,16 @@ def _build_layer_bundle(entry, W, H, num_pos_points, num_neg_points):
 
 LAYER_PRESETS = {
     "portrait": [
-        "face (skin region: forehead, cheeks, nose, chin — exclude hair, neck, ears)",
-        "hair (scalp hair only — top and sides of head, eyebrows if thick)",
-        "eyes and eye area (both eye sockets including eyelids, lashes, brows)",
-        "mouth and lips (upper lip, lower lip, chin dimple if present)",
-        "neck and upper chest",
-        "clothing and garments (shirt, jacket, top — anything worn on the body)",
-        "accessories (glasses, earrings, hat, necklace, jewelry)",
-        "background (everything not part of the person)",
+        "01:full_face (all visible skin: forehead, cheeks, nose, mouth, chin — exclude hair, neck, ears)",
+        "02:hair (all scalp hair, eyebrows — exclude face skin and background)",
+        "03:body (neck, shoulders, upper chest, clothing on torso)",
+        "04:items (accessories, jewelry, glasses, hat, held objects)",
     ],
     "full_body": [
-        "face and head skin",
-        "hair",
-        "upper body clothing (shirt, jacket, top)",
-        "lower body clothing (pants, skirt, shorts)",
-        "shoes and footwear",
-        "hands and arms skin",
-        "accessories (bag, jewelry, glasses, hat)",
-        "background",
+        "01:full_face (face and head skin)",
+        "02:hair (all scalp hair)",
+        "03:body (torso clothing, arms, legs, shoes — full body below neck)",
+        "04:items (bag, jewelry, glasses, hat, held objects)",
     ],
     "product": [
         "main product item",
@@ -1653,7 +1645,15 @@ class AVMAutoLayer:
             bundles.append(empty_bundle)
             labels.append("")
 
-        layer_set  = {lbl: b["boxes"] for lbl, b in zip(labels, bundles) if lbl}
+        layer_set  = {
+            lbl: {
+                "boxes":    b["boxes"]["boxes"],
+                "labels":   b["boxes"]["labels"],
+                "positive": b["positive"],
+                "negative": b["negative"],
+            }
+            for lbl, b in zip(labels, bundles) if lbl
+        }
         label_list = "\n".join(f"{i+1}. {lb}" for i, lb in enumerate(labels) if lb)
 
         print(f"[AVMAutoLayer] Detected {len(layers)} layers: {[l for l in labels if l]}")
@@ -1838,7 +1838,12 @@ class AVMMultiFrameAutoLayer:
                     continue
                 bundle = _build_layer_bundle(entry, W, H, num_pos_points, num_neg_points)
                 bundles[label] = bundle
-                layer_set[label] = bundle["boxes"]
+                layer_set[label] = {
+                    "boxes":    bundle["boxes"]["boxes"],
+                    "labels":   bundle["boxes"]["labels"],
+                    "positive": bundle["positive"],
+                    "negative": bundle["negative"],
+                }
 
             print(f"[AVMMultiFrameAutoLayer] Frame {frame_idx}: {list(bundles.keys())}")
             return frame_idx, layer_set, bundles, f"=== Frame {frame_idx} ===\nDiscovery: {raw1}\nLocalize: {raw2}"
