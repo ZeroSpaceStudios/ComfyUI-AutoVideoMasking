@@ -187,15 +187,15 @@ def layer_discovery_prompt(guidance_line):
         (f"{guidance_line}\n\n" if guidance_line else "")
         + "Look at the image and identify NON-OVERLAPPING visual regions.\n\n"
         "Always output these 4 slots if the region is visible (use these exact label names):\n"
-        "  01:full_face — all visible face skin (forehead, cheeks, nose, mouth, chin)\n"
-        "  02:hair — all scalp hair and eyebrows\n"
-        "  03:body — neck, torso, clothing, arms, legs\n"
-        "  04:items — accessories, jewelry, glasses, hat, held objects\n\n"
-        "If any other clearly distinct region exists beyond those 4, add it as:\n"
-        "  05:background, 05:clothing, 05:<short description>, etc.\n\n"
+        "  full_face — all visible face skin (forehead, cheeks, nose, mouth, chin)\n"
+        "  hair — all scalp hair and eyebrows\n"
+        "  body — neck, torso, clothing, arms, legs\n"
+        "  items — accessories, jewelry, glasses, hat, held objects\n\n"
+        "If any other clearly distinct region exists beyond those 4, add a short label for it "
+        "(e.g. 'background', 'clothing', 'shoes').\n\n"
         "Skip any slot that is not visible. Each region must be spatially distinct — no overlaps.\n\n"
         "Return ONLY valid JSON (no markdown):\n"
-        '{"layers": ["01:full_face", "02:hair", "03:body", "04:items"]}'
+        '{"layers": ["full_face", "hair", "body", "items"]}'
     )
 
 def layer_localize_prompt(W, H, num_pos_points, num_neg_points, labels_json):

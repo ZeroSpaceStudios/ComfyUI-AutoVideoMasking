@@ -1558,16 +1558,16 @@ def _build_layer_bundle(entry, W, H, num_pos_points, num_neg_points):
 
 LAYER_PRESETS = {
     "portrait": [
-        "01:full_face (all visible skin: forehead, cheeks, nose, mouth, chin — exclude hair, neck, ears)",
-        "02:hair (all scalp hair, eyebrows — exclude face skin and background)",
-        "03:body (neck, shoulders, upper chest, clothing on torso)",
-        "04:items (accessories, jewelry, glasses, hat, held objects)",
+        "full_face (all visible skin: forehead, cheeks, nose, mouth, chin — exclude hair, neck, ears)",
+        "hair (all scalp hair, eyebrows — exclude face skin and background)",
+        "body (neck, shoulders, upper chest, clothing on torso)",
+        "items (accessories, jewelry, glasses, hat, held objects)",
     ],
     "full_body": [
-        "01:full_face (face and head skin)",
-        "02:hair (all scalp hair)",
-        "03:body (torso clothing, arms, legs, shoes — full body below neck)",
-        "04:items (bag, jewelry, glasses, hat, held objects)",
+        "full_face (face and head skin)",
+        "hair (all scalp hair)",
+        "body (torso clothing, arms, legs, shoes — full body below neck)",
+        "items (bag, jewelry, glasses, hat, held objects)",
     ],
     "product": [
         "main product item",
