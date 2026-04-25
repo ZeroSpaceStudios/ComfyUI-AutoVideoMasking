@@ -1710,7 +1710,8 @@ class AVMLayerPropagate:
                 propagated[label] = result[0]  # SAM3_VIDEO_MASKS
                 print(f"[AVMLayerPropagate] '{label}' propagation complete")
             except Exception as e:
-                print(f"[AVMLayerPropagate] '{label}' failed: {e}")
+                import traceback
+                print(f"[AVMLayerPropagate] '{label}' failed: {e}\n{traceback.format_exc()}")
                 propagated[label] = None
 
         print(f"[AVMLayerPropagate] Done. {len(propagated)} layers propagated.")
@@ -1899,7 +1900,8 @@ class AVMMultiFrameLayerPropagate:
                 propagated[label] = result[0]
                 print(f"[AVMMultiFrameLayerPropagate] '{label}' done")
             except Exception as e:
-                print(f"[AVMMultiFrameLayerPropagate] '{label}' failed: {e}")
+                import traceback
+                print(f"[AVMMultiFrameLayerPropagate] '{label}' failed: {e}\n{traceback.format_exc()}")
                 propagated[label] = None
 
         print(f"[AVMMultiFrameLayerPropagate] Done. {len(propagated)} layers propagated.")
