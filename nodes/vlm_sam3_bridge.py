@@ -1883,6 +1883,12 @@ class AVMMultiFrameLayerPropagate:
                 "video_frames":          ("IMAGE",),
                 "multi_frame_layer_set": ("AVM_MULTI_FRAME_LAYER_SET",),
                 "sam3_model":            ("SAM3_MODEL_CONFIG",),
+            },
+            "optional": {
+                "video_state": ("SAM3_VIDEO_STATE", {
+                    "tooltip": "Pre-built video state from SAM3 Video Segmentation. "
+                               "If provided, reuses its saved frames instead of re-saving them.",
+                }),
             }
         }
 
@@ -1891,11 +1897,20 @@ class AVMMultiFrameLayerPropagate:
     FUNCTION = "run"
     CATEGORY      = "AVM"
 
-    def run(self, video_frames, multi_frame_layer_set, sam3_model):
+    def run(self, video_frames, multi_frame_layer_set, sam3_model, video_state=None):
         vs_mod, vn_mod = _load_sam3_modules()
         create_video_state = vs_mod.create_video_state
+        SAM3VideoState     = vs_mod.SAM3VideoState
         VideoPrompt        = vs_mod.VideoPrompt
         SAM3Propagate      = vn_mod.SAM3Propagate
+
+        # Build a prompt-free base state once (reuse saved frames if video_state provided)
+        if video_state is not None:
+            clean_dict = dict(video_state)
+            clean_dict["prompts"] = []
+            _base_state = SAM3VideoState.from_dict(clean_dict)
+        else:
+            _base_state = create_video_state(video_frames)
 
         # Collect all unique labels across all keyframes
         all_labels = set()
@@ -1932,18 +1947,18 @@ class AVMMultiFrameLayerPropagate:
 
             print(f"[AVMMultiFrameLayerPropagate] '{label}' — {len(anchors)} anchor(s): frames {[a[0] for a in anchors]}")
             try:
-                video_state = create_video_state(video_frames)
+                layer_state = _base_state
                 for frame_idx, box_corners, pos_pts, neg_pts in anchors:
-                    video_state = video_state.with_prompt(
+                    layer_state = layer_state.with_prompt(
                         VideoPrompt.create_box(frame_idx, 1, box_corners, is_positive=True)
                     )
                     if pos_pts or neg_pts:
                         all_pts = pos_pts + neg_pts
                         all_lbls = [1] * len(pos_pts) + [0] * len(neg_pts)
-                        video_state = video_state.with_prompt(
+                        layer_state = layer_state.with_prompt(
                             VideoPrompt.create_point(frame_idx, 1, all_pts, all_lbls)
                         )
-                result = SAM3Propagate.execute(sam3_model, video_state.to_dict())
+                result = SAM3Propagate.execute(sam3_model, layer_state.to_dict())
                 propagated[label] = result[0]  # SAM3_VIDEO_MASKS (string-keyed dict)
                 print(f"[AVMMultiFrameLayerPropagate] '{label}' done")
             except Exception as e:
@@ -2009,7 +2024,7 @@ class AVMLayerPreviewComposite:
             r, g, b = LAYER_COLORS[i % len(LAYER_COLORS)]
             color_t = torch.tensor([r / 255.0, g / 255.0, b / 255.0], dtype=torch.float32)
 
-            masks = _extract_mask_from_video_masks(video_masks)  # [F_m, H_m, W_m]
+            masks = _extract_mask_from_video_masks(video_masks, fallback_h=H, fallback_w=W)  # [F_m, H_m, W_m]
             if masks.shape[1] != H or masks.shape[2] != W:
                 masks = F_fn.interpolate(
                     masks.unsqueeze(1).float(), size=(H, W),
@@ -2096,7 +2111,7 @@ class AVMLayerPreviewGrid:
             r, g, b = LAYER_COLORS[i % len(LAYER_COLORS)]
             color_t = torch.tensor([r / 255.0, g / 255.0, b / 255.0], dtype=torch.float32)
 
-            masks = _extract_mask_from_video_masks(video_masks)  # [F_m, H_m, W_m]
+            masks = _extract_mask_from_video_masks(video_masks, fallback_h=H, fallback_w=W)  # [F_m, H_m, W_m]
 
             # Resize to video dimensions if SAM3 ran at a different resolution
             if masks.shape[1] != H or masks.shape[2] != W:
@@ -2292,7 +2307,7 @@ class VLMReferenceMatch:
 # AVMLayerSelector — extract a single layer from a AVM_LAYER_SET
 # =============================================================================
 
-def _extract_mask_from_video_masks(video_masks):
+def _extract_mask_from_video_masks(video_masks, fallback_h=8, fallback_w=8):
     """Convert SAM3_VIDEO_MASKS → float MASK tensor [F,H,W].
     SAM3 returns string-keyed frames ('0','1',...) with numpy bool arrays (1,H,W)."""
     import torch
@@ -2302,18 +2317,34 @@ def _extract_mask_from_video_masks(video_masks):
         int(k) for k in video_masks if str(k).lstrip('-').isdigit()
     )
     if not frame_indices:
-        return torch.zeros(1, 8, 8)
+        return torch.zeros(1, fallback_h, fallback_w)
+
+    # First pass: find the true spatial dims from any non-empty frame
+    ref_h, ref_w = None, None
+    for idx in frame_indices:
+        data = video_masks.get(idx) if idx in video_masks else video_masks.get(str(idx))
+        m = data.get("mask") if isinstance(data, dict) else data
+        if m is None:
+            continue
+        arr = m if isinstance(m, np.ndarray) else m.numpy() if hasattr(m, 'numpy') else None
+        if arr is None:
+            continue
+        if arr.ndim == 3 and arr.shape[0] == 0:
+            continue
+        sh = arr.shape
+        ref_h, ref_w = (sh[-2], sh[-1]) if len(sh) >= 2 else (ref_h, ref_w)
+        if ref_h:
+            break
+    ref_h = ref_h or fallback_h
+    ref_w = ref_w or fallback_w
 
     frame_tensors = []
-    ref_h, ref_w = None, None
-
     for idx in frame_indices:
         data = video_masks.get(idx) if idx in video_masks else video_masks.get(str(idx))
         m = data.get("mask") if isinstance(data, dict) else data
 
         if m is None:
-            h, w = ref_h or 8, ref_w or 8
-            frame_tensors.append(torch.zeros(h, w))
+            frame_tensors.append(torch.zeros(ref_h, ref_w))
             continue
 
         # Convert numpy → torch
@@ -2325,12 +2356,10 @@ def _extract_mask_from_video_masks(video_masks):
         # Squeeze [N,H,W] → [H,W]; treat empty arrays as zero masks
         if m.dim() == 3:
             if m.shape[0] == 0:
-                h, w = ref_h or 8, ref_w or 8
-                frame_tensors.append(torch.zeros(h, w))
+                frame_tensors.append(torch.zeros(ref_h, ref_w))
                 continue
             m = m[0]
 
-        ref_h, ref_w = m.shape[-2], m.shape[-1]
         frame_tensors.append(m)
 
     return torch.stack(frame_tensors, dim=0)  # [F, H, W]
