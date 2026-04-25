@@ -2285,8 +2285,12 @@ def _extract_mask_from_video_masks(video_masks):
         else:
             m = m.float()
 
-        # Squeeze [N,H,W] → [H,W]
+        # Squeeze [N,H,W] → [H,W]; treat empty arrays as zero masks
         if m.dim() == 3:
+            if m.shape[0] == 0:
+                h, w = ref_h or 8, ref_w or 8
+                frame_tensors.append(torch.zeros(h, w))
+                continue
             m = m[0]
 
         ref_h, ref_w = m.shape[-2], m.shape[-1]
